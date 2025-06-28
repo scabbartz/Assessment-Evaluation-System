@@ -1,13 +1,14 @@
 import React, { useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import authService from '../../api/authService';
+import { toast } from 'react-toastify'; // Import toast
 
 // TODO: Later, integrate with an AuthContext to update global auth state
 
 const LoginPage = () => {
     const [email, setEmail] = useState('');
     const [password, setPassword] = useState('');
-    const [error, setError] = useState('');
+    // const [error, setError] = useState(''); // Replaced by toast
     const [isLoading, setIsLoading] = useState(false);
     const navigate = useNavigate();
 
@@ -16,23 +17,27 @@ const LoginPage = () => {
 
     const handleSubmit = async (e) => {
         e.preventDefault();
-        setError('');
+        // setError(''); // No longer needed
         setIsLoading(true);
 
         if (!email || !password) {
-            setError('Email and password are required.');
+            toast.error('Email and password are required.');
             setIsLoading(false);
             return;
         }
 
         try {
             const userData = await authService.login({ email, password });
-            console.log('Login successful:', userData);
+            // console.log('Login successful:', userData);
             // contextLogin(userData); // Update global auth state via context
             // For now, just navigate. App.js or Navbar might check localStorage.
+            toast.success(`Welcome back, ${userData.name}!`);
+            // Dispatch custom event so Navbar updates immediately if it's listening
+            window.dispatchEvent(new Event('authChange'));
             navigate('/'); // Redirect to homepage or dashboard after login
         } catch (err) {
-            setError(err.response?.data?.message || err.message || 'Login failed. Please check your credentials.');
+            const errorMsg = err.response?.data?.message || err.message || 'Login failed. Please check your credentials.';
+            toast.error(errorMsg);
             console.error('Login error:', err);
         } finally {
             setIsLoading(false);
@@ -42,7 +47,7 @@ const LoginPage = () => {
     return (
         <div style={{ maxWidth: '400px', margin: '50px auto', padding: '20px', border: '1px solid #ccc', borderRadius: '5px' }}>
             <h2>Login</h2>
-            {error && <p style={{ color: 'red' }}>{error}</p>}
+            {/* {error && <p style={{ color: 'red' }}>{error}</p>} Removed direct error display */}
             <form onSubmit={handleSubmit}>
                 <div style={{ marginBottom: '10px' }}>
                     <label htmlFor="email" style={{ display: 'block', marginBottom: '5px' }}>Email:</label>

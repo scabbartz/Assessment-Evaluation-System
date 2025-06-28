@@ -4,36 +4,49 @@ const batchNestedRouter = express.Router({ mergeParams: true }); // Router for /
 const athleteNestedRouter = express.Router({ mergeParams: true }); // Router for /api/athletes/:athleteId/entries
 
 const {
-    createAssessmentEntry,          // Used by batchNestedRouter
-    createBulkAssessmentEntries,    // Used by batchNestedRouter
-    getEntriesForBatch,             // Used by batchNestedRouter
-    getEntriesForAthlete,           // Used by athleteNestedRouter
-    getAssessmentEntryById,         // Used by main router
-    updateAssessmentEntry,          // Used by main router
-    deleteAssessmentEntry,          // Used by main router
+    createAssessmentEntry,
+    createBulkAssessmentEntries,
+    getEntriesForBatch,
+    getEntriesForAthlete,
+    getAssessmentEntryById,
+    updateAssessmentEntry,
+    deleteAssessmentEntry,
 } = require('../controllers/assessmentEntryController');
+const { protect, authorize } = require('../middleware/authMiddleware');
+const { userRoles } = require('../models/UserModel');
 
-// TODO: Add protect and authorize middleware where appropriate
+// Define roles that can manage assessment entries.
+// Typically, Coaches, Evaluators, and relevant Admins.
+const entryCreatorRoles = [userRoles[0], userRoles[1], userRoles[2], userRoles[3], userRoles[4], userRoles[5]]; // SuperAdmin, SystemAdmin, ProgramAdmin, SchoolAdmin, Coach, Evaluator
+const entryEditorRoles = [...entryCreatorRoles];
+// Viewing entries might be broader, depending on report access rules.
+const entryViewerRoles = [...entryCreatorRoles, userRoles[6]]; // Athlete can view their own.
 
 // --- Routes for /api/batches/:batchId/entries ---
+// These actions are performed in the context of a specific batch.
 batchNestedRouter.route('/')
-    .post(createAssessmentEntry)    // POST /api/batches/:batchId/entries
-    .get(getEntriesForBatch);       // GET /api/batches/:batchId/entries
+    .post(protect, authorize(entryCreatorRoles), createAssessmentEntry)
+    .get(protect, authorize(entryViewerRoles), getEntriesForBatch);
 
-batchNestedRouter.route('/bulk') // Note: changed from /bulk-entries to just /bulk for brevity
-    .post(createBulkAssessmentEntries); // POST /api/batches/:batchId/entries/bulk
+batchNestedRouter.route('/bulk')
+    .post(protect, authorize(entryCreatorRoles), createBulkAssessmentEntries);
 
 
 // --- Routes for /api/athletes/:athleteId/entries ---
+// Viewing all entries for a specific athlete.
+// Authorization: Athlete themselves, their Coach, relevant Admins.
+// This requires more complex logic than simple role check if athlete can only see their own.
+// For now, general viewer roles. `getEntriesForAthlete` controller should handle self-access if athleteId matches req.user.athleteId (if such a field exists).
 athleteNestedRouter.route('/')
-    .get(getEntriesForAthlete);     // GET /api/athletes/:athleteId/entries
+    .get(protect, authorize(entryViewerRoles), getEntriesForAthlete);
 
 
 // --- Routes for /api/entries/:entryId (direct entry manipulation) ---
+// These routes act on a specific entry known by its _id.
 router.route('/:entryId')
-    .get(getAssessmentEntryById)    // GET /api/entries/:entryId
-    .put(updateAssessmentEntry)     // PUT /api/entries/:entryId
-    .delete(deleteAssessmentEntry); // DELETE /api/entries/:entryId
+    .get(protect, authorize(entryViewerRoles), getAssessmentEntryById)
+    .put(protect, authorize(entryEditorRoles), updateAssessmentEntry)
+    .delete(protect, authorize(entryEditorRoles), deleteAssessmentEntry);
 
 
 // Export all routers to be mounted in server.js

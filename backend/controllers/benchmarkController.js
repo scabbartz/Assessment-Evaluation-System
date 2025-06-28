@@ -6,47 +6,79 @@ const mongoose = require('mongoose');
 
 // --- Helper Functions (Actual calculation logic will be more complex in Phase 2) ---
 
-// Placeholder for percentile calculation (e.g., using a library or custom algorithm)
+/**
+ * Calculates percentiles for a given sorted array of numbers.
+ * Uses the R-7 method (Excel's PERCENTILE.INC, Python's numpy.percentile default).
+ * @param {number[]} sortedValues - Array of numbers, must be sorted in ascending order.
+ * @param {number[]} pRanks - Array of percentile ranks to calculate (e.g., [10, 25, 50, 75, 90]).
+ * @returns {object} - Object with keys like p10, p25, etc., and their calculated values.
+ */
 const calculatePercentiles = (sortedValues, pRanks = [10, 25, 50, 75, 90]) => {
     const percentiles = {};
-    if (!sortedValues || sortedValues.length === 0) {
+    const n = sortedValues.length;
+
+    if (n === 0) {
         pRanks.forEach(p => percentiles[`p${p}`] = null);
         return percentiles;
     }
-    // Simplified percentile calculation (linear interpolation)
-    pRanks.forEach(p => {
-        const x = (p / 100) * (sortedValues.length - 1) + 1;
-        const intX = Math.floor(x);
-        const fracX = x - intX;
-        if (intX -1 < 0) percentiles[`p${p}`] = sortedValues[0]; // if only one value
-        else if (intX >= sortedValues.length) percentiles[`p${p}`] = sortedValues[sortedValues.length -1];
-        else {
-             percentiles[`p${p}`] = sortedValues[intX - 1] + fracX * (sortedValues[intX] - sortedValues[intX - 1]);
+    if (n === 1) { // If only one value, it's all percentiles
+        pRanks.forEach(p => percentiles[`p${p}`] = parseFloat(sortedValues[0].toFixed(2)));
+        return percentiles;
+    }
+
+    pRanks.forEach(pRank => {
+        const p = pRank / 100;
+        // R-7 method (Excel's PERCENTILE.INC, numpy default)
+        // index = p * (n - 1)
+        const rank = p * (n - 1);
+        const lowerIndex = Math.floor(rank);
+        const upperIndex = Math.ceil(rank);
+        const fraction = rank - lowerIndex;
+
+        if (upperIndex >= n) { // requested percentile is at or beyond the max value
+            percentiles[`p${pRank}`] = parseFloat(sortedValues[n - 1].toFixed(2));
+        } else if (lowerIndex < 0) { // should not happen if p is between 0 and 1
+             percentiles[`p${pRank}`] = parseFloat(sortedValues[0].toFixed(2));
         }
-         // Ensure two decimal places for numbers
-        if (typeof percentiles[`p${p}`] === 'number') {
-            percentiles[`p${p}`] = parseFloat(percentiles[`p${p}`].toFixed(2));
+        else {
+            const lowerValue = sortedValues[lowerIndex];
+            const upperValue = sortedValues[upperIndex];
+            const interpolatedValue = lowerValue + (upperValue - lowerValue) * fraction;
+            percentiles[`p${pRank}`] = parseFloat(interpolatedValue.toFixed(2));
         }
     });
     return percentiles;
 };
 
-// Placeholder for mean and standard deviation (population)
+/**
+ * Calculates mean, population standard deviation, count, min, and max for an array of values.
+ * @param {any[]} values - Array of values, will be filtered for numbers.
+ * @returns {object} - Object containing mean, stdDev, count, min, max.
+ */
 const calculateMeanStdDev = (values) => {
-    if (!values || values.length === 0) return { mean: null, stdDev: null, count: 0, min: null, max: null };
+    if (!values || values.length === 0) {
+        return { mean: null, stdDev: null, count: 0, min: null, max: null };
+    }
 
     const numericValues = values.map(v => Number(v)).filter(v => !isNaN(v));
-    if (numericValues.length === 0) return { mean: null, stdDev: null, count: 0, min: null, max: null };
+    if (numericValues.length === 0) {
+        return { mean: null, stdDev: null, count: 0, min: null, max: null };
+    }
 
     const count = numericValues.length;
-    const mean = numericValues.reduce((sum, val) => sum + val, 0) / count;
-    const stdDev = Math.sqrt(numericValues.reduce((sqDiffSum, val) => sqDiffSum + Math.pow(val - mean, 2), 0) / count); // Population SD
+    const sum = numericValues.reduce((acc, val) => acc + val, 0);
+    const mean = sum / count;
+
+    // Population Standard Deviation: sqrt(sum((xi - mean)^2) / N)
+    const squaredDifferencesSum = numericValues.reduce((acc, val) => acc + Math.pow(val - mean, 2), 0);
+    const stdDev = count > 0 ? Math.sqrt(squaredDifferencesSum / count) : null;
+
     const min = Math.min(...numericValues);
     const max = Math.max(...numericValues);
 
     return {
         mean: parseFloat(mean.toFixed(2)),
-        stdDev: parseFloat(stdDev.toFixed(2)),
+        stdDev: stdDev !== null ? parseFloat(stdDev.toFixed(2)) : null,
         count,
         min: parseFloat(min.toFixed(2)),
         max: parseFloat(max.toFixed(2))

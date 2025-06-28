@@ -4,9 +4,13 @@ const Batch = require('../models/BatchModel');
 const Assessment = require('../models/AssessmentModel');
 const mongoose = require('mongoose');
 
-// @desc    Get data for an individual athlete's report
-// @route   GET /api/reports/individual/:athleteId
-// @access  Private (TODO: Add auth - user, coach, or admin)
+/**
+ * @desc    Get data for an individual athlete's report
+ * @route   GET /api/reports/individual/:athleteId
+ * @access  Private (Requires authentication and authorization based on user role and relation to athlete)
+ * @param {object} req - Express request object
+ * @param {object} res - Express response object
+ */
 const getIndividualAthleteReport = async (req, res) => {
     const { athleteId } = req.params; // This is the string athleteId (e.g., 'STUDENT_001')
 
@@ -49,9 +53,13 @@ const getIndividualAthleteReport = async (req, res) => {
 };
 
 
-// @desc    Get data for cohort analytics (e.g., for a session or batch)
-// @route   GET /api/reports/cohort/session/:sessionId
-// @access  Private (TODO: Add auth)
+/**
+ * @desc    Get data for cohort analytics (e.g., for a session or batch)
+ * @route   GET /api/reports/cohort/session/:sessionId
+ * @access  Private (Requires authentication and authorization, e.g., for Coaches, Admins)
+ * @param {object} req - Express request object
+ * @param {object} res - Express response object
+ */
 const getCohortAnalyticsReport = async (req, res) => {
     const { sessionId } = req.params;
     // Could also add filters like assessmentId, batchId via req.query
@@ -135,16 +143,26 @@ const getCohortAnalyticsReport = async (req, res) => {
 
 // --- Export Placeholders ---
 
-// @desc    Export Individual Report as PDF (Placeholder)
-// @route   GET /api/reports/individual/:athleteId/export/pdf
+/**
+ * @desc    Export Individual Report as PDF (Placeholder)
+ * @route   GET /api/reports/individual/:athleteId/export/pdf
+ * @access  Private
+ * @param {object} req - Express request object
+ * @param {object} res - Express response object
+ */
 const exportIndividualReportPDF = async (req, res) => {
     const { athleteId } = req.params;
     // TODO: Implement actual PDF generation using a library like pdfmake, puppeteer, or similar
     res.status(200).json({ message: `PDF export for athlete ${athleteId} - Not Implemented Yet.` });
 };
 
-// @desc    Export Individual Report as CSV (Placeholder)
-// @route   GET /api/reports/individual/:athleteId/export/csv
+/**
+ * @desc    Export Individual Report as CSV (Placeholder)
+ * @route   GET /api/reports/individual/:athleteId/export/csv
+ * @access  Private
+ * @param {object} req - Express request object
+ * @param {object} res - Express response object
+ */
 const exportIndividualReportCSV = async (req, res) => {
     const { athleteId } = req.params;
     // TODO: Implement actual CSV generation (fetch data, format as CSV string/file)
@@ -153,15 +171,25 @@ const exportIndividualReportCSV = async (req, res) => {
     res.status(200).send(`AthleteID,Date,Assessment,Parameter,Value,ZScore,Band\nPlaceholder1,2023-01-01,TestAssessment,Sprint,10,1.0,Excellent`);
 };
 
-// @desc    Export Cohort Report as PDF (Placeholder)
-// @route   GET /api/reports/cohort/session/:sessionId/export/pdf
+/**
+ * @desc    Export Cohort Report as PDF (Placeholder)
+ * @route   GET /api/reports/cohort/session/:sessionId/export/pdf
+ * @access  Private
+ * @param {object} req - Express request object
+ * @param {object} res - Express response object
+ */
 const exportCohortReportPDF = async (req, res) => {
     const { sessionId } = req.params;
     res.status(200).json({ message: `PDF export for session cohort ${sessionId} - Not Implemented Yet.` });
 };
 
-// @desc    Export Cohort Report as CSV (Placeholder)
-// @route   GET /api/reports/cohort/session/:sessionId/export/csv
+/**
+ * @desc    Export Cohort Report as CSV (Placeholder)
+ * @route   GET /api/reports/cohort/session/:sessionId/export/csv
+ * @access  Private
+ * @param {object} req - Express request object
+ * @param {object} res - Express response object
+ */
 const exportCohortReportCSV = async (req, res) => {
     const { sessionId } = req.params;
     res.setHeader('Content-Type', 'text/csv');

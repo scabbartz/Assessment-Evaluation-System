@@ -17,7 +17,8 @@
     "swagger-jsdoc": "^6.2.8", // Added for API docs
     "swagger-ui-express": "^4.6.2", // Added for API docs UI
     "helmet": "^6.0.1", // Added for security headers
-    "cors": "^2.8.5" // Added for Cross-Origin Resource Sharing
+    "cors": "^2.8.5", // Added for Cross-Origin Resource Sharing
+    "express-rate-limit": "^6.7.0" // Added for rate limiting
     // Add other dependencies here as needed: jsonwebtoken, morgan, etc.
   },
   "devDependencies": {

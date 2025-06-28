@@ -1,16 +1,32 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import reportService from '../../api/reportService';
-// import { Bar, Line, Radar } from 'react-chartjs-2'; // Example for Chart.js
-// import { Chart as ChartJS, CategoryScale, LinearScale, BarElement, PointElement, LineElement, RadialLinearScale, Title, Tooltip, Legend } from 'chart.js';
-// ChartJS.register(CategoryScale, LinearScale, BarElement, PointElement, LineElement, RadialLinearScale, Title, Tooltip, Legend);
+import { Bar } from 'react-chartjs-2';
+import {
+    Chart as ChartJS,
+    CategoryScale,
+    LinearScale,
+    BarElement,
+    Title,
+    Tooltip,
+    Legend,
+} from 'chart.js';
 
+ChartJS.register(
+    CategoryScale,
+    LinearScale,
+    BarElement,
+    Title,
+    Tooltip,
+    Legend
+);
 
 const CohortAnalyticsPage = () => {
     const { sessionId } = useParams(); // SessionId from URL
     const [reportData, setReportData] = useState(null);
     const [isLoading, setIsLoading] = useState(true);
     const [error, setError] = useState(null);
+    const [barChartData, setBarChartData] = useState(null);
 
     // TODO: Add state for selected batch if filtering cohort by batch within a session
 
@@ -40,16 +56,55 @@ const CohortAnalyticsPage = () => {
 
     const { session, cohortData, message } = reportData;
 
-    // Placeholder data/options for charts - to be replaced with actual data processing
-    const placeholderChartData = {
-        labels: ['Parameter A', 'Parameter B', 'Parameter C'],
-        datasets: [{
-            label: 'Average Z-Score',
-            data: [0.5, -0.2, 1.1],
-            backgroundColor: 'rgba(75, 192, 192, 0.6)',
-        }]
+    // Prepare data for Bar Chart (Average Z-Scores)
+    useEffect(() => {
+        if (cohortData && cohortData.parameterStats) {
+            const labels = Object.values(cohortData.parameterStats).map(stat => stat.parameterName);
+            const dataValues = Object.values(cohortData.parameterStats).map(stat => stat.averageZScore || 0); // Default to 0 if no Z-score
+
+            setBarChartData({
+                labels,
+                datasets: [
+                    {
+                        label: 'Average Z-Score',
+                        data: dataValues,
+                        backgroundColor: 'rgba(75, 192, 192, 0.6)',
+                        borderColor: 'rgba(75, 192, 192, 1)',
+                        borderWidth: 1,
+                    },
+                ],
+            });
+        }
+    }, [cohortData]);
+
+    const barChartOptions = {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: {
+            legend: {
+                position: 'top',
+            },
+            title: {
+                display: true,
+                text: 'Average Z-Scores per Parameter',
+            },
+        },
+        scales: {
+            y: {
+                beginAtZero: false, // Z-scores can be negative
+                title: {
+                    display: true,
+                    text: 'Average Z-Score'
+                }
+            },
+            x: {
+                 title: {
+                    display: true,
+                    text: 'Parameters'
+                }
+            }
+        }
     };
-    const chartOptions = { responsive: true, maintainAspectRatio: false };
 
 
     return (
@@ -74,7 +129,7 @@ const CohortAnalyticsPage = () => {
 
                     <h3>Parameter Statistics (Averages):</h3>
                     {Object.keys(cohortData.parameterStats || {}).length > 0 ? (
-                        <table style={{width: '100%', fontSize: '0.9em'}}>
+                        <table style={{width: '100%', fontSize: '0.9em', marginBottom: '20px'}}>
                             <thead>
                                 <tr>
                                     <th>Parameter Name</th>
@@ -94,23 +149,28 @@ const CohortAnalyticsPage = () => {
                                 ))}
                             </tbody>
                         </table>
-                    ) : <p>No aggregated parameter statistics available.</p>}
+                    ) : <p>No aggregated parameter statistics available to display in table.</p>}
 
-                    {/* Placeholder Chart Section */}
+                    {/* Chart Section */}
                     <div style={{ marginTop: '30px', display: 'flex', gap: '20px', flexWrap: 'wrap' }}>
-                        <div style={{border: '1px solid #ddd', padding: '10px', width: 'calc(50% - 20px)', minWidth: '300px', height: '300px'}}>
-                            <h4>Average Z-Scores (Bar Chart Placeholder)</h4>
-                            {/* <Bar data={placeholderChartData} options={chartOptions} /> */}
-                            <p><em>Bar chart visualization would appear here.</em></p>
-                        </div>
-                        <div style={{border: '1px solid #ddd', padding: '10px', width: 'calc(50% - 20px)', minWidth: '300px', height: '300px'}}>
+                        {barChartData && Object.keys(cohortData.parameterStats || {}).length > 0 ? (
+                            <div style={{border: '1px solid #ddd', padding: '10px', width: '100%', minWidth: '300px', height: '400px'}}>
+                                <Bar data={barChartData} options={barChartOptions} />
+                            </div>
+                        ) : (
+                            <div style={{border: '1px solid #ddd', padding: '10px', width: '100%', minWidth: '300px', height: 'auto'}}>
+                                <h4>Average Z-Scores Chart</h4>
+                                <p><em>No data available to display chart or chart is loading.</em></p>
+                            </div>
+                        )}
+
+                        {/* Placeholders for other charts */}
+                        <div style={{border: '1px solid #ddd', padding: '10px', width: 'calc(50% - 10px)', minWidth: '300px', height: '300px', boxSizing: 'border-box'}}>
                             <h4>Performance Distribution (Line Chart Placeholder)</h4>
-                            {/* <Line data={...} options={chartOptions} /> */}
                              <p><em>Line chart visualization (e.g., score distribution) would appear here.</em></p>
                         </div>
-                        <div style={{border: '1px solid #ddd', padding: '10px', width: 'calc(50% - 20px)', minWidth: '300px', height: '300px'}}>
+                        <div style={{border: '1px solid #ddd', padding: '10px', width: 'calc(50% - 10px)', minWidth: '300px', height: '300px', boxSizing: 'border-box'}}>
                             <h4>Multi-Parameter Profile (Radar Chart Placeholder)</h4>
-                            {/* <Radar data={...} options={chartOptions} /> */}
                             <p><em>Radar chart (e.g. for comparing multiple key parameters) would appear here.</em></p>
                         </div>
                     </div>

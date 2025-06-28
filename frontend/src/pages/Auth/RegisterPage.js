@@ -1,6 +1,8 @@
 import React, { useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import authService from '../../api/authService';
+import { toast } from 'react-toastify'; // Import toast
+
 // Import userRoles if you want to populate a dropdown for role selection (for admin registration)
 // import { userRoles } from '../../../backend/models/UserModel'; // Adjust path as needed, or define frontend constant
 
@@ -17,7 +19,7 @@ const RegisterPage = () => {
     // TODO: Add state for 'scopes' if it's part of the registration form.
     // For simplicity in scaffolding, scope assignment might be an admin task post-registration.
 
-    const [error, setError] = useState('');
+    // const [error, setError] = useState(''); // Replaced by toast
     const [isLoading, setIsLoading] = useState(false);
     const navigate = useNavigate();
 
@@ -26,35 +28,39 @@ const RegisterPage = () => {
 
     const handleSubmit = async (e) => {
         e.preventDefault();
-        setError('');
+        // setError(''); // No longer needed
         setIsLoading(true);
 
         if (!name || !email || !password || !confirmPassword) {
-            setError('All fields are required.');
+            toast.error('All fields are required.');
             setIsLoading(false);
             return;
         }
         if (password !== confirmPassword) {
-            setError('Passwords do not match.');
+            toast.error('Passwords do not match.');
             setIsLoading(false);
             return;
         }
         if (password.length < 6) {
-            setError('Password must be at least 6 characters long.');
+            toast.error('Password must be at least 6 characters long.');
             setIsLoading(false);
             return;
         }
 
         try {
-            const userData = { name, email, password, role /*, scopes (if collected) */ };
-            const responseData = await authService.register(userData);
-            console.log('Registration successful:', responseData);
+            const userDataToSubmit = { name, email, password, role /*, scopes (if collected) */ };
+            const responseData = await authService.register(userDataToSubmit);
+            // console.log('Registration successful:', responseData);
             // Typically, after registration, the user is also logged in.
             // The register endpoint in authController already returns a token.
             // contextLogin(responseData); // Update global auth state
+            toast.success(`Registration successful! Welcome, ${responseData.name}! You are now logged in.`);
+             // Dispatch custom event so Navbar updates immediately if it's listening
+            window.dispatchEvent(new Event('authChange'));
             navigate('/'); // Redirect to homepage or dashboard
         } catch (err) {
-            setError(err.response?.data?.message || err.message || 'Registration failed. Please try again.');
+            const errorMsg = err.response?.data?.message || err.message || 'Registration failed. Please try again.';
+            toast.error(errorMsg);
             console.error('Registration error:', err);
         } finally {
             setIsLoading(false);
@@ -64,7 +70,7 @@ const RegisterPage = () => {
     return (
         <div style={{ maxWidth: '450px', margin: '50px auto', padding: '20px', border: '1px solid #ccc', borderRadius: '5px' }}>
             <h2>Register</h2>
-            {error && <p style={{ color: 'red' }}>{error}</p>}
+            {/* {error && <p style={{ color: 'red' }}>{error}</p>} Removed direct error display */}
             <form onSubmit={handleSubmit}>
                 <div style={{ marginBottom: '10px' }}>
                     <label htmlFor="name" style={{ display: 'block', marginBottom: '5px' }}>Full Name:</label>

@@ -3,6 +3,8 @@ const Session = require('../models/SessionModel'); // To validate students again
 const Assessment = require('../models/AssessmentModel'); // To validate assessmentId
 const AssessmentEntry = require('../models/AssessmentEntryModel'); // For processing results
 const Benchmark = require('../models/BenchmarkModel'); // For fetching benchmarks
+const { sendNotification } = require('../controllers/notificationController'); // Import for sending notifications
+const User = require('../models/UserModel'); // May be needed to get recipient details
 const mongoose = require('mongoose');
 
 // --- Helper for Scoring (Actual logic can be more sophisticated) ---
@@ -18,12 +20,20 @@ const calculateScoresForParameter = (value, benchmark) => {
 
     const zScore = parseFloat(((numericValue - benchmark.mean) / benchmark.stdDev).toFixed(2));
 
-    // Placeholder for percentile rank - this is complex.
-    // A true percentile rank requires knowing the distribution or having many data points.
-    // For now, we can use the benchmark's pre-calculated percentiles as a rough guide or leave it null.
-    // Example: if zScore is close to a certain percentile's typical Z value.
-    // Or, if benchmark.percentiles.p50 (median) is available, compare against it.
-    let percentile = null; // TODO: Implement more robust percentile calculation or lookup in Phase 2/Report generation
+    let percentile = null;
+    // Estimate percentile rank based on benchmark's P-values
+    // This is an estimation. A more precise rank needs more data or complex calculation.
+    // Assumes higher value is better for this basic percentile estimation.
+    // TODO: Consider parameter direction (higher_is_better vs lower_is_better) for percentile logic.
+    if (benchmark.percentiles) {
+        if (benchmark.percentiles.p90 !== null && numericValue >= benchmark.percentiles.p90) percentile = 90;
+        else if (benchmark.percentiles.p75 !== null && numericValue >= benchmark.percentiles.p75) percentile = 75;
+        else if (benchmark.percentiles.p50 !== null && numericValue >= benchmark.percentiles.p50) percentile = 50;
+        else if (benchmark.percentiles.p25 !== null && numericValue >= benchmark.percentiles.p25) percentile = 25;
+        else if (benchmark.percentiles.p10 !== null && numericValue >= benchmark.percentiles.p10) percentile = 10;
+        else if (benchmark.percentiles.p10 !== null && numericValue < benchmark.percentiles.p10) percentile = 0; // Or some value < 10
+    }
+
 
     let band = 'Needs Improvement'; // Default band
     // Determine band based on Z-score thresholds (as per plan 5.3)
@@ -152,8 +162,8 @@ const updateBatch = async (req, res) => {
 
         const { title, assessmentId, maxStudents, venue, date, startTime, endTime, instructors, students, status } = req.body;
 
-        if (assessmentId !== undefined) { // Check if assessmentId is part of request
-            if (assessmentId === null || assessmentId === '') { // Allow unsetting
+        if (assessmentId !== undefined) {
+            if (assessmentId === null || assessmentId === '') {
                  batch.assessmentId = undefined;
             } else if (mongoose.Types.ObjectId.isValid(assessmentId)) {
                 const assessmentExists = await Assessment.findById(assessmentId);
@@ -188,11 +198,30 @@ const updateBatch = async (req, res) => {
         if (date !== undefined) batch.date = date;
         if (startTime !== undefined) batch.startTime = startTime;
         if (endTime !== undefined) batch.endTime = endTime;
+
+        const oldStatus = batch.status;
         if (status) batch.status = status;
         // batch.updatedBy = req.user.id; // TODO
 
-        const updatedBatch = await batch.save();
-        res.status(200).json(updatedBatch);
+        const updatedBatchResult = await batch.save();
+
+        // --- Send Notification on Publish ---
+        if (updatedBatchResult.status === 'Published' && oldStatus !== 'Published') {
+            const sessionForNotification = await Session.findById(updatedBatchResult.sessionId).select('name');
+            console.log(`Batch ${updatedBatchResult.title} published. Triggering placeholder notification.`);
+            sendNotification(
+                'batch_published_notification', // Template name
+                {
+                    batchName: updatedBatchResult.title,
+                    batchDate: updatedBatchResult.date ? new Date(updatedBatchResult.date).toLocaleDateString() : 'N/A',
+                    sessionName: sessionForNotification?.name || 'N/A'
+                },
+                { /* Recipient info placeholder */ }
+            );
+        }
+        // --- End Notification ---
+
+        res.status(200).json(updatedBatchResult);
     } catch (error) {
         console.error("Error updating batch:", error);
         if (error.name === 'ValidationError') return res.status(400).json({ message: "Validation Error", errors: error.errors });
@@ -210,16 +239,16 @@ const deleteBatch = async (req, res) => {
         if (!mongoose.Types.ObjectId.isValid(batchId)) return res.status(400).json({ message: 'Invalid Batch ID format.' });
         const batch = await Batch.findById(batchId);
         if (!batch) return res.status(404).json({ message: 'Batch not found.' });
-        // TODO: Delete associated assessment entries: await AssessmentEntry.deleteMany({ batchId: batch._id });
+        await AssessmentEntry.deleteMany({ batchId: batch._id }); // Also delete associated entries
         await batch.remove();
-        res.status(200).json({ message: 'Batch removed successfully.' });
+        res.status(200).json({ message: 'Batch and associated entries removed successfully.' });
     } catch (error) {
         console.error("Error deleting batch:", error);
         res.status(500).json({ message: "Server error while deleting batch." });
     }
 };
 
-// @desc    Update batch status
+// @desc    Update batch status (This is now merged into the general updateBatch, but kept if direct status update is preferred)
 // @route   PATCH /api/batches/:batchId/status
 // @access  Private (TODO: Add auth)
 const updateBatchStatus = async (req, res) => {
@@ -227,14 +256,32 @@ const updateBatchStatus = async (req, res) => {
         const { batchId } = req.params;
         const { status } = req.body;
         if (!mongoose.Types.ObjectId.isValid(batchId)) return res.status(400).json({ message: 'Invalid Batch ID format.' });
+
         const batch = await Batch.findById(batchId);
         if (!batch) return res.status(404).json({ message: 'Batch not found.' });
+
         const allowedStatuses = ['Draft', 'In Progress', 'Finished', 'Published', 'Cancelled'];
         if (!status || !allowedStatuses.includes(status)) return res.status(400).json({ message: `Invalid status. Must be one of: ${allowedStatuses.join(', ')}` });
+
+        const oldStatus = batch.status;
         batch.status = status;
         // batch.updatedBy = req.user.id; // TODO
-        await batch.save();
-        res.status(200).json({ message: `Batch status updated to ${status}`, batch });
+        const updatedBatch = await batch.save();
+
+        if (status === 'Published' && oldStatus !== 'Published') {
+            const sessionForNotification = await Session.findById(updatedBatch.sessionId).select('name');
+            console.log(`Batch ${updatedBatch.title} published via status update. Triggering placeholder notification.`);
+            sendNotification(
+                'batch_published_notification',
+                {
+                    batchName: updatedBatch.title,
+                    batchDate: updatedBatch.date ? new Date(updatedBatch.date).toLocaleDateString() : 'N/A',
+                    sessionName: sessionForNotification?.name || 'N/A'
+                },
+                { /* Recipient info placeholder */ }
+            );
+        }
+        res.status(200).json({ message: `Batch status updated to ${status}`, batch: updatedBatch });
     } catch (error) {
         console.error("Error updating batch status:", error);
         res.status(500).json({ message: "Server error while updating batch status." });
@@ -248,7 +295,7 @@ const createRandomBatches = async (req, res) => {
     const { sessionId } = req.params;
     const { numberOfBatches, maxStudentsPerBatch, defaultBatchTitlePrefix, defaultVenue, defaultDate, defaultAssessmentId } = req.body;
     if (!mongoose.Types.ObjectId.isValid(sessionId)) return res.status(400).json({ message: 'Invalid Session ID format.' });
-    const parentSession = await Session.findById(sessionId).select('students');
+    const parentSession = await Session.findById(sessionId).select('students name'); // Added name for notification
     if (!parentSession) return res.status(404).json({ message: 'Parent session not found.' });
     if (!parentSession.students || parentSession.students.length === 0) return res.status(400).json({ message: 'Session has no students to partition.' });
     if ((!numberOfBatches && !maxStudentsPerBatch) || (numberOfBatches && maxStudentsPerBatch)) return res.status(400).json({ message: 'Specify either numberOfBatches OR maxStudentsPerBatch.' });
@@ -297,7 +344,7 @@ const processBatchResults = async (req, res) => {
     }
 
     try {
-        const batch = await Batch.findById(batchId).populate('assessmentId'); // Populate assessment to get its parameters
+        const batch = await Batch.findById(batchId).populate('assessmentId').populate('sessionId', 'name'); // Populate session for notification
         if (!batch) {
             return res.status(404).json({ message: 'Batch not found.' });
         }
@@ -311,19 +358,17 @@ const processBatchResults = async (req, res) => {
         }
 
         let processedCount = 0;
-        const errorsProcessing = []; // Renamed to avoid conflict with outer scope 'error'
+        const errorsProcessing = [];
 
         for (const entry of entries) {
-            let entryOverallScoreNum = 0; // Numerator for weighted average Z-score
-            let entryOverallScoreDen = 0; // Denominator (sum of weights)
+            let entryOverallScoreNum = 0;
+            let entryOverallScoreDen = 0;
 
             for (let i = 0; i < entry.data.length; i++) {
                 const paramData = entry.data[i];
-                // Ensure rawValue is populated if not already (might have been set on entry creation)
                 if (paramData.rawValue === undefined && paramData.value !== undefined) {
                     paramData.rawValue = paramData.value;
                 }
-
                 if (paramData.value === null || paramData.value === undefined) continue;
 
                 const assessmentParamDetail = batch.assessmentId.parameters.find(p => p._id.equals(paramData.parameterId));
@@ -331,13 +376,12 @@ const processBatchResults = async (req, res) => {
                     continue;
                 }
 
-                // TODO: Enhance benchmark query with ageGroup/gender from entry if benchmarks are stratified and entry has this info
                 const benchmark = await Benchmark.findOne({
-                    sessionId: batch.sessionId,
+                    sessionId: batch.sessionId._id, // Use ID from populated session
                     assessmentId: batch.assessmentId._id,
                     parameterId: paramData.parameterId,
-                    ageGroup: null, // For now, assuming general benchmarks
-                    gender: null    // For now, assuming general benchmarks
+                    ageGroup: null,
+                    gender: null
                 });
 
                 if (!benchmark) {
@@ -352,7 +396,6 @@ const processBatchResults = async (req, res) => {
                 paramData.percentile = scores.percentile;
                 paramData.band = scores.band;
 
-                // For overall score calculation using Z-scores
                 if (scores.zScore !== null) {
                     const weight = assessmentParamDetail.scoringDetails?.weight || 1;
                     entryOverallScoreNum += (scores.zScore * weight);
@@ -362,7 +405,6 @@ const processBatchResults = async (req, res) => {
 
             if (entryOverallScoreDen > 0) {
                 entry.overallScore = parseFloat((entryOverallScoreNum / entryOverallScoreDen).toFixed(2));
-                // Determine overall band based on overallScore
                 if (entry.overallScore > 1) entry.overallBand = 'Excellent';
                 else if (entry.overallScore > 0) entry.overallBand = 'Above Average';
                 else if (entry.overallScore > -1) entry.overallBand = 'Below Average';
@@ -380,11 +422,28 @@ const processBatchResults = async (req, res) => {
             }
         }
 
+        const oldStatus = batch.status;
         if (batch.status === "In Progress" || batch.status === "Finished") {
-            batch.status = "Finished"; // Or a new status like "ResultsProcessed"
-            // batch.resultsCalculated = true; // If using such a flag
+            batch.status = "Finished";
             await batch.save();
         }
+
+        // Send notification if status changed to Published as a result of processing or was already Finished
+        // This logic might be better if "Publish" is an explicit separate action/status.
+        // For now, let's assume "Finished" means results are ready and might warrant a notification.
+        if (batch.status === "Finished" && (oldStatus === "In Progress" || oldStatus === "Finished")) { // If it became or remained Finished
+             console.log(`Batch ${batch.title} results processed (status: Finished). Triggering placeholder notification.`);
+             sendNotification(
+                'batch_results_processed_notification', // A new template for this
+                {
+                    batchName: batch.title,
+                    batchDate: batch.date ? new Date(batch.date).toLocaleDateString() : 'N/A',
+                    sessionName: batch.sessionId.name // Populated session name
+                },
+                { /* Recipient info placeholder */ }
+            );
+        }
+
 
         res.status(200).json({
             message: `Processed results for ${processedCount} entries.`,
@@ -392,7 +451,7 @@ const processBatchResults = async (req, res) => {
             errors: errorsProcessing.length > 0 ? errorsProcessing : undefined
         });
 
-    } catch (error) { // Catch errors from main try block (e.g., finding batch, entries)
+    } catch (error) {
         console.error("Error processing batch results:", error);
         res.status(500).json({ message: `Server error: ${error.message}` });
     }

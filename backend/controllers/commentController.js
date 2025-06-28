@@ -1,10 +1,16 @@
 const Comment = require('../models/CommentModel');
 const AssessmentEntry = require('../models/AssessmentEntryModel'); // To ensure entry exists
+const { sendNotification } = require('../controllers/notificationController'); // Import for sending notifications
+const User = require('../models/UserModel'); // May be needed to get recipient details for notification
 const mongoose = require('mongoose');
 
-// @desc    Create a new comment on an assessment entry
-// @route   POST /api/assessment-entries/:entryId/comments
-// @access  Private (TODO: Authenticated users like coaches, admins)
+/**
+ * @desc    Create a new comment on an assessment entry
+ * @route   POST /api/assessment-entries/:entryId/comments
+ * @access  Private (Authenticated users, specific roles defined in routes)
+ * @param {object} req - Express request object. Expected params: `entryId`. Expected body: `text`, `parentCommentId` (optional). `req.user` from `protect` middleware.
+ * @param {object} res - Express response object
+ */
 const createComment = async (req, res) => {
     const { entryId } = req.params; // entryId refers to AssessmentEntry._id
     const { text, parentCommentId } = req.body;
@@ -46,6 +52,27 @@ const createComment = async (req, res) => {
         });
 
         const savedComment = await newComment.save();
+
+        // --- Send Notification for New Comment ---
+        // We need to identify who to notify (e.g., athlete, coach associated with the entry/athlete)
+        // This requires more complex logic to find the target user(s) and their contact details.
+        // For now, a placeholder log.
+        // const athleteUser = await User.findOne({ athleteSystemId: assessmentEntry.athleteId }); // Example if athleteId links to a User
+        // const entryCreator = await User.findById(assessmentEntry.enteredBy); // Or whoever owns/manages this entry
+
+        console.log(`New comment created by ${userName} on entry for athlete ${assessmentEntry.athleteId}. Triggering placeholder notification.`);
+        sendNotification(
+            'new_comment_notification', // Template name
+            { // Context for the template
+                commenterName: userName,
+                athleteIdentifier: assessmentEntry.athleteId, // Or athlete's actual name if available
+                commentTextSnippet: text.substring(0, 50) + (text.length > 50 ? '...' : ''),
+                // entryLink: `/reports/individual/${assessmentEntry.athleteId}/entry/${entryId}` // Placeholder link
+            },
+            { /* Recipient placeholder - e.g., { userId: athleteUser?._id, email: athleteUser?.email } */ }
+        );
+        // --- End Notification ---
+
         // TODO: Populate user details if needed in response, for now userName is denormalized
         res.status(201).json(savedComment);
 
@@ -58,9 +85,13 @@ const createComment = async (req, res) => {
     }
 };
 
-// @desc    Get all comments for an assessment entry (hierarchical structure if possible)
-// @route   GET /api/assessment-entries/:entryId/comments
-// @access  Private (TODO: Users who can view the report)
+/**
+ * @desc    Get all comments for an assessment entry
+ * @route   GET /api/assessment-entries/:entryId/comments
+ * @access  Private (Authenticated users, specific roles defined in routes)
+ * @param {object} req - Express request object. Expected params: `entryId`.
+ * @param {object} res - Express response object
+ */
 const getCommentsForEntry = async (req, res) => {
     const { entryId } = req.params;
 
@@ -102,13 +133,18 @@ const getCommentsForEntry = async (req, res) => {
     }
 };
 
-// @desc    Update a comment
-// @route   PUT /api/comments/:commentId
-// @access  Private (TODO: Owner of the comment or Admin)
+/**
+ * @desc    Update a comment
+ * @route   PUT /api/comments/:commentId
+ * @access  Private (Owner of the comment or Admin)
+ * @param {object} req - Express request object. Expected params: `commentId`. Expected body: `text`. `req.user` from `protect` middleware.
+ * @param {object} res - Express response object
+ */
 const updateComment = async (req, res) => {
     const { commentId } = req.params;
     const { text } = req.body;
-    // const userId = req.user.id; // TODO: Get from authenticated user
+    const userId = req.user.id; // Actual userId from protect middleware
+    const userRole = req.user.role; // Actual userRole from protect middleware
 
     if (!mongoose.Types.ObjectId.isValid(commentId)) {
         return res.status(400).json({ message: 'Invalid Comment ID format.' });
@@ -123,10 +159,11 @@ const updateComment = async (req, res) => {
             return res.status(404).json({ message: 'Comment not found.' });
         }
 
-        // TODO: Authorization check: Ensure req.user.id matches comment.userId or user is admin
-        // if (comment.userId.toString() !== userId && !req.user.isAdmin) {
-        //     return res.status(403).json({ message: 'User not authorized to update this comment.' });
-        // }
+        // Authorization check: Ensure req.user.id matches comment.userId or user is an admin role
+        const isAdmin = [userRoles[0], userRoles[1]].includes(userRole); // SuperAdmin, SystemAdmin
+        if (comment.userId.toString() !== userId && !isAdmin) {
+            return res.status(403).json({ message: 'User not authorized to update this comment.' });
+        }
 
         comment.text = text;
         comment.isEdited = true;
@@ -142,12 +179,17 @@ const updateComment = async (req, res) => {
     }
 };
 
-// @desc    Delete a comment (Soft delete)
-// @route   DELETE /api/comments/:commentId
-// @access  Private (TODO: Owner of the comment or Admin)
+/**
+ * @desc    Delete a comment (Soft delete)
+ * @route   DELETE /api/comments/:commentId
+ * @access  Private (Owner of the comment or Admin)
+ * @param {object} req - Express request object. Expected params: `commentId`. `req.user` from `protect` middleware.
+ * @param {object} res - Express response object
+ */
 const deleteComment = async (req, res) => {
     const { commentId } = req.params;
-    // const userId = req.user.id; // TODO: Get from authenticated user
+    const userId = req.user.id; // Actual userId
+    const userRole = req.user.role; // Actual userRole
 
     if (!mongoose.Types.ObjectId.isValid(commentId)) {
         return res.status(400).json({ message: 'Invalid Comment ID format.' });
@@ -155,14 +197,15 @@ const deleteComment = async (req, res) => {
 
     try {
         const comment = await Comment.findById(commentId);
-        if (!comment || comment.isDeleted) {
+        if (!comment || comment.isDeleted) { // Check isDeleted as well
             return res.status(404).json({ message: 'Comment not found or already deleted.' });
         }
 
-        // TODO: Authorization check
-        // if (comment.userId.toString() !== userId && !req.user.isAdmin) {
-        //     return res.status(403).json({ message: 'User not authorized to delete this comment.' });
-        // }
+        // Authorization check
+        const isAdmin = [userRoles[0], userRoles[1]].includes(userRole); // SuperAdmin, SystemAdmin
+        if (comment.userId.toString() !== userId && !isAdmin) {
+            return res.status(403).json({ message: 'User not authorized to delete this comment.' });
+        }
 
         comment.isDeleted = true;
         comment.deletedAt = new Date();

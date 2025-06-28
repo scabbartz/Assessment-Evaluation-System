@@ -28,6 +28,9 @@ import RegisterPage from './pages/Auth/RegisterPage';
 // TODO: Import Navbar, Footer, other layout components, AuthContext
 import authService from './api/authService'; // To get local user for Navbar
 import React, { useState, useEffect /*, createContext, useContext */ } from 'react'; // Added useState, useEffect
+import { ToastContainer } from 'react-toastify';
+import 'react-toastify/dist/ReactToastify.css';
+import NotificationBell from './components/common/NotificationBell'; // Import NotificationBell
 
 // --- Placeholder for AuthContext ---
 // const AuthContext = createContext(null);
@@ -82,9 +85,10 @@ const Navbar = () => {
             {/* TODO: Conditionally show other links based on role */}
             {user && (<li style={{ display: 'inline', marginRight: '10px' }}><Link to="/data-entry">Data Entry</Link></li>)}
         </div>
-        <div> {/* Right side links */}
+        <div style={{display: 'flex', alignItems: 'center'}}> {/* Right side links & Bell */}
             {user ? (
                 <>
+                    <NotificationBell /> {/* Add NotificationBell here */}
                     <li style={{ display: 'inline', marginRight: '10px' }}>Welcome, {user.name}! ({user.role})</li>
                     {/* <li style={{ display: 'inline', marginRight: '10px' }}><Link to="/profile">My Profile</Link></li> {/* TODO: Profile page */}
                     <li style={{ display: 'inline' }}>
@@ -117,6 +121,18 @@ function App() {
   // For now, App without full AuthProvider context
   return (
     <Router> {/* This Router should be inside AuthProvider if using context that needs router (e.g. for navigate) */}
+      <ToastContainer
+        position="top-right"
+        autoClose={5000}
+        hideProgressBar={false}
+        newestOnTop={false}
+        closeOnClick
+        rtl={false}
+        pauseOnFocusLoss
+        draggable
+        pauseOnHover
+        theme="light" // or "dark" or "colored"
+      />
       <div className="container" style={{padding: '20px'}}>
         <Navbar />
         <h1>Athlete Assessment System</h1>

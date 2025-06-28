@@ -50,61 +50,11 @@ export const deleteComment = async (commentId) => {
     return response.data;
 };
 
-
-// --- Notification Template Service (Basic CRUD if an admin UI is built for them later) ---
-// For now, these are less critical for core athlete/coach workflow but good for completeness.
-
-/**
- * Creates a new notification template.
- * @param {object} templateData - The data for the new template.
- * @returns {Promise<object>} - The created template object.
- */
-export const createNotificationTemplate = async (templateData) => {
-    const response = await axios.post('/api/notification-templates', templateData);
-    return response.data;
-};
-
-/**
- * Fetches all notification templates.
- * @returns {Promise<Array>} - An array of template objects.
- */
-export const getNotificationTemplates = async () => {
-    const response = await axios.get('/api/notification-templates');
-    return response.data;
-};
-
-/**
- * Updates a notification template.
- * @param {string} templateId - The ID of the template to update.
- * @param {object} updateData - The data to update.
- * @returns {Promise<object>} - The updated template object.
- */
-export const updateNotificationTemplate = async (templateId, updateData) => {
-    const response = await axios.put(`/api/notification-templates/${templateId}`, updateData);
-    return response.data;
-};
-
-/**
- * Deletes a notification template.
- * @param {string} templateId - The ID of the template to delete.
- * @returns {Promise<object>} - Confirmation message.
- */
-export const deleteNotificationTemplate = async (templateId) => {
-    const response = await axios.delete(`/api/notification-templates/${templateId}`);
-    return response.data;
-};
-
-
 const commentService = {
     createComment,
     getCommentsForEntry,
     updateComment,
     deleteComment,
-    // Exposing template functions too, though they might live in a separate notificationService.js
-    createNotificationTemplate,
-    getNotificationTemplates,
-    updateNotificationTemplate,
-    deleteNotificationTemplate,
 };
 
 export default commentService;

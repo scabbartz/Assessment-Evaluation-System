@@ -14,8 +14,22 @@ const IndividualReportPage = () => {
     const [newCommentText, setNewCommentText] = useState({}); // { entryId: "text" }
     const [isLoading, setIsLoading] = useState(true);
     const [isLoadingComments, setIsLoadingComments] = useState({}); // { entryId: true/false }
-    const [error, setError] = useState(null);
-    const [commentError, setCommentError] = useState({}); // { entryId: "error message" }
+    const [error, setError] = useState(null); // General page load error
+    const [commentError, setCommentError] = useState({}); // { entryId: "error message for specific comment section" }
+    const [editingComment, setEditingComment] = useState(null); // { commentId: string, text: string, entryId: string }
+    const [replyToComment, setReplyToComment] = useState(null); // { parentCommentId: string, entryId: string }
+
+
+    // Placeholder for current user (replace with actual auth context later)
+    const MOCK_CURRENT_USER = {
+        // _id: "mockUserId123", // Replace with actual user ID from auth
+        // name: "Mock Current User",
+        // role: "Coach" // Example role
+        // For now, to test edit/delete, let's assume we can edit/delete any comment.
+        // In a real app, these would be based on comment.userId === currentUser._id or currentUser.role === 'Admin'
+        _id: null, name: null, role: null
+    };
+    const currentUser = MOCK_CURRENT_USER;
 
 
     useEffect(() => {
@@ -66,6 +80,87 @@ const IndividualReportPage = () => {
     };
 
     // TODO: Add functions for updating/deleting comments if UI for that is added.
+    const handleEditComment = (comment, entryId) => {
+        setEditingComment({ commentId: comment._id, text: comment.text, entryId });
+        // Potentially scroll to the main comment input box which could be repurposed for editing
+    };
+
+    const handleCancelEdit = () => {
+        setEditingComment(null);
+    };
+
+    const handleUpdateComment = async () => {
+        if (!editingComment || !editingComment.text.trim()) {
+            toast.error("Comment text cannot be empty.");
+            return;
+        }
+        try {
+            await commentService.updateComment(editingComment.commentId, { text: editingComment.text });
+            toast.success("Comment updated successfully.");
+            fetchCommentsForEntry(editingComment.entryId); // Refresh comments
+            setEditingComment(null);
+        } catch (err) {
+            toast.error(err.response?.data?.message || err.message || "Failed to update comment.");
+        }
+    };
+
+    const handleDeleteComment = async (commentId, entryId) => {
+        if (window.confirm("Are you sure you want to delete this comment?")) {
+            try {
+                await commentService.deleteComment(commentId);
+                toast.success("Comment deleted successfully.");
+                fetchCommentsForEntry(entryId); // Refresh comments
+            } catch (err) {
+                toast.error(err.response?.data?.message || err.message || "Failed to delete comment.");
+            }
+        }
+    };
+
+    const handleReplyToComment = (parentComment, entryId) => {
+        setReplyToComment({ parentCommentId: parentComment._id, entryId });
+        // Focus the main comment input for that entry, or a specific reply input
+        const mainCommentInput = document.getElementById(`comment-input-${entryId}`);
+        if (mainCommentInput) mainCommentInput.focus();
+        toast.info(`Replying to ${parentComment.userName}'s comment. Type your reply below.`);
+    };
+
+    const handleCancelReply = () => {
+        setReplyToComment(null);
+    };
+
+    const handlePostCommentOrReply = async (entryId) => {
+        const textToPost = editingComment ? editingComment.text : (newCommentText[entryId] || '');
+        if (!textToPost.trim()) {
+            setCommentError(prev => ({ ...prev, [entryId]: 'Comment text cannot be empty.' }));
+            toast.error('Comment text cannot be empty.');
+            return;
+        }
+
+        const commentPayload = {
+            text: textToPost.trim(),
+            parentCommentId: replyToComment && replyToComment.entryId === entryId ? replyToComment.parentCommentId : null
+        };
+
+        try {
+            if (editingComment && editingComment.entryId === entryId) { // Ensure editing correct comment
+                await commentService.updateComment(editingComment.commentId, { text: commentPayload.text });
+                toast.success("Comment updated successfully.");
+                setEditingComment(null);
+            } else {
+                await commentService.createComment(entryId, commentPayload);
+                toast.success(commentPayload.parentCommentId ? "Reply posted successfully." : "Comment posted successfully.");
+            }
+
+            setNewCommentText(prev => ({ ...prev, [entryId]: '' }));
+            setReplyToComment(null); // Clear reply state
+            fetchCommentsForEntry(entryId);
+        } catch (err) {
+            const errorMsg = err.response?.data?.message || err.message || "Failed to post comment/reply.";
+            setCommentError(prev => ({ ...prev, [entryId]: errorMsg }));
+            toast.error(errorMsg);
+        }
+    };
+
 
     if (isLoading) return <p>Loading individual report for athlete {athleteId}...</p>;
     if (error) return <p style={{ color: 'red' }}>Error: {error}</p>;
@@ -139,40 +234,58 @@ const IndividualReportPage = () => {
 
                         {/* Comments Section Placeholder */}
                         <div style={{marginTop: '10px', borderTop: '1px dashed #ddd', paddingTop: '10px'}}>
-                            <h5>Feedback & Comments ({comments[entry._id]?.length || 0})</h5>
+                            <h5>Feedback & Comments ({comments[entry._id]?.filter(c => !c.parentCommentId).length || 0} top-level)</h5>
                             {isLoadingComments[entry._id] && <p>Loading comments...</p>}
-                            {commentError[entry._id] && <p style={{color: 'red'}}>{commentError[entry._id]}</p>}
+                            {commentError[entry._id] && <p style={{color: 'red', fontSize: '0.9em'}}>{commentError[entry._id]}</p>}
 
                             {!comments[entry._id] && !isLoadingComments[entry._id] && (
-                                <button onClick={() => fetchCommentsForEntry(entry._id)} style={{fontSize: '0.8em'}}>Load Comments</button>
+                                <button onClick={() => fetchCommentsForEntry(entry._id)} style={{fontSize: '0.8em', marginBottom: '10px'}}>Load Comments</button>
                             )}
 
-                            {comments[entry._id] && comments[entry._id].length > 0 && (
-                                <ul style={{listStyle: 'none', paddingLeft: 0, fontSize: '0.9em', maxHeight: '150px', overflowY: 'auto'}}>
-                                    {comments[entry._id].map(comment => (
-                                        <li key={comment._id} style={{marginBottom: '5px', paddingBottom: '5px', borderBottom: '1px solid #f0f0f0'}}>
-                                            <strong>{comment.userName || 'User'}:</strong> {comment.text}
-                                            <br/>
-                                            <small style={{color: '#777'}}>
-                                                {new Date(comment.createdAt).toLocaleString()}
-                                                {comment.isEdited && ' (edited)'}
-                                            </small>
-                                            {/* TODO: Add edit/delete buttons for comment owner/admin */}
-                                        </li>
-                                    ))}
-                                </ul>
-                            )}
-                            {comments[entry._id] && comments[entry._id].length === 0 && <p>No comments yet.</p>}
+                            {/* Render Comments (Recursive component or inline logic for nesting) */}
+                            {comments[entry._id] && <RenderComments
+                                entryId={entry._id}
+                                allCommentsForEntry={comments[entry._id]}
+                                currentUser={currentUser}
+                                onEdit={handleEditComment}
+                                onDelete={handleDeleteComment}
+                                onReply={handleReplyToComment}
+                            />}
 
-                            <div style={{marginTop: '5px'}}>
-                                <textarea
-                                    rows="2"
-                                    placeholder="Add a comment..."
-                                    value={newCommentText[entry._id] || ''}
-                                    onChange={(e) => setNewCommentText(prev => ({ ...prev, [entry._id]: e.target.value }))}
-                                    style={{width: 'calc(100% - 80px)', marginRight: '5px', verticalAlign: 'bottom'}}
-                                />
-                                <button onClick={() => handleAddComment(entry._id)} style={{fontSize: '0.8em'}}>Post</button>
+                            {/* Comment Input Form (handles new comments, replies, and edits) */}
+                            <div style={{marginTop: '10px', borderTop: '1px solid #eee', paddingTop: '10px'}}>
+                                {editingComment && editingComment.entryId === entry._id ? (
+                                    <>
+                                        <h6>Editing comment:</h6>
+                                        <textarea
+                                            id={`comment-edit-input-${entry._id}`}
+                                            rows="3"
+                                            value={editingComment.text}
+                                            onChange={(e) => setEditingComment(prev => ({ ...prev, text: e.target.value }))}
+                                            style={{width: '100%', marginBottom: '5px', boxSizing: 'border-box'}}
+                                        />
+                                        <button onClick={() => handlePostCommentOrReply(entry._id)} style={{fontSize: '0.9em', marginRight: '5px'}}>Save Edit</button>
+                                        <button onClick={handleCancelEdit} style={{fontSize: '0.9em', backgroundColor: '#aaa'}}>Cancel Edit</button>
+                                    </>
+                                ) : (
+                                    <>
+                                        <h6>{replyToComment && replyToComment.entryId === entry._id ? `Replying to comment...` : 'Add a new comment:'}</h6>
+                                        {replyToComment && replyToComment.entryId === entry._id && (
+                                            <button onClick={handleCancelReply} style={{fontSize: '0.8em', marginBottom: '5px', backgroundColor: '#eee'}}>Cancel Reply</button>
+                                        )}
+                                        <textarea
+                                            id={`comment-input-${entry._id}`}
+                                            rows="3"
+                                            placeholder="Type your comment or reply here..."
+                                            value={newCommentText[entry._id] || ''}
+                                            onChange={(e) => setNewCommentText(prev => ({ ...prev, [entry._id]: e.target.value }))}
+                                            style={{width: '100%', marginBottom: '5px', boxSizing: 'border-box'}}
+                                        />
+                                        <button onClick={() => handlePostCommentOrReply(entry._id)} style={{fontSize: '0.9em'}}>
+                                            {replyToComment && replyToComment.entryId === entry._id ? 'Post Reply' : 'Post Comment'}
+                                        </button>
+                                    </>
+                                )}
                             </div>
                         </div>
                     </div>
@@ -199,5 +312,62 @@ const IndividualReportPage = () => {
         </div>
     );
 };
+
+
+// Recursive or Helper Component to Render Comments and Replies
+const RenderComments = ({ entryId, allCommentsForEntry, currentUser, onEdit, onDelete, onReply, level = 0 }) => {
+    const parentId = level === 0 ? null : arguments[1]; // A bit hacky, better to pass parentId explicitly if nesting deeply
+
+    // Filter comments for the current level (top-level or replies to a specific parent)
+    // This simple filter works for one level of replies. Deeper nesting needs more robust parentId tracking.
+    // For now, this just renders all comments flat but with reply buttons.
+    // A proper threaded view would filter comments based on their `parentCommentId`.
+    // Let's build the structure for threading:
+    const buildThread = (comments, parentIdToFilter = null) => {
+        return comments
+            .filter(comment => (comment.parentCommentId ? comment.parentCommentId.toString() : null) === (parentIdToFilter ? parentIdToFilter.toString() : null))
+            .sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt)) // Sort by creation time
+            .map(comment => (
+                <div key={comment._id} style={{
+                    marginLeft: `${level * 20}px`,
+                    marginBottom: '10px',
+                    padding: '8px',
+                    border: '1px solid #f0f0f0',
+                    borderRadius: '4px',
+                    backgroundColor: level > 0 ? '#f9f9f9' : '#fff'
+                }}>
+                    <p style={{margin: '0 0 5px 0'}}>
+                        <strong>{comment.userName || 'User'}:</strong> {comment.text}
+                    </p>
+                    <small style={{color: '#777', fontSize: '0.8em'}}>
+                        {new Date(comment.createdAt).toLocaleString()}
+                        {comment.isEdited && ' (edited)'}
+                    </small>
+                    <div style={{marginTop: '5px'}}>
+                        {/* Placeholder: Show edit/delete only if currentUser matches comment.userId or isAdmin */}
+                        {/* For scaffolding, let's assume all can be interacted with, or use mock user */}
+                        { (currentUser?._id === comment.userId || currentUser?.role === 'Admin' || currentUser?.role === 'SuperAdmin' || !currentUser?._id /* allow all if no user */) && (
+                            <>
+                                <button onClick={() => onEdit(comment, entryId)} style={{fontSize: '0.8em', marginRight: '5px', padding: '2px 5px'}}>Edit</button>
+                                <button onClick={() => onDelete(comment._id, entryId)} style={{fontSize: '0.8em', padding: '2px 5px', backgroundColor: '#ffdddd'}}>Delete</button>
+                            </>
+                        )}
+                        <button onClick={() => onReply(comment, entryId)} style={{fontSize: '0.8em', marginLeft: '10px', padding: '2px 5px'}}>Reply</button>
+                    </div>
+                    {/* Recursively render replies */}
+                    <div style={{marginTop: '8px', paddingLeft: '15px', borderLeft: '2px solid #eee'}}>
+                        {buildThread(allCommentsForEntry, comment._id)}
+                    </div>
+                </div>
+            ));
+    };
+
+    if (!allCommentsForEntry || allCommentsForEntry.length === 0) {
+        return <p style={{fontSize: '0.9em', color: '#666'}}>No comments yet for this entry.</p>;
+    }
+
+    return <div>{buildThread(allCommentsForEntry, null)}</div>;
+};
+
 
 export default IndividualReportPage;
