@@ -1,12 +1,21 @@
 const User = require('../models/UserModel');
 const mongoose = require('mongoose'); // For ObjectId validation if needed elsewhere
-// const jwt = require('jsonwebtoken'); // Will be used when JWT is fully implemented
+const jwt = require('jsonwebtoken'); // Now using actual jsonwebtoken
 // const crypto = require('crypto'); // For generating reset tokens, etc.
 
-// Placeholder for generating JWT. In a real app, use 'jsonwebtoken' library.
+// Generates a JWT
 const generateToken = (userId, role) => {
-    // return jwt.sign({ id: userId, role }, process.env.JWT_SECRET, { expiresIn: process.env.JWT_EXPIRE || '30d' });
-    return `mocktoken-${userId}-${role}-${Date.now()}`; // Simple mock token
+    if (!process.env.JWT_SECRET) {
+        console.error('FATAL ERROR: JWT_SECRET is not defined. Cannot generate token.');
+        // In a real app, you might throw an error or have a more robust fallback/logging.
+        // For this simulation, returning a clearly identifiable error string.
+        return 'ERROR_JWT_SECRET_NOT_DEFINED';
+    }
+    return jwt.sign(
+        { id: userId, role: role }, // Payload
+        process.env.JWT_SECRET,     // Secret
+        { expiresIn: process.env.JWT_EXPIRE || '30d' } // Expiration
+    );
 };
 
 /**
