@@ -3,8 +3,8 @@ import { useParams, useNavigate, Link } from 'react-router-dom';
 import batchService from '../../api/batchService'; // To get batch details (including assessment and its params)
 import assessmentEntryService from '../../api/assessmentEntryService'; // To create/manage entries
 import sessionService from '../../api/sessionService'; // To list sessions for selection (if batch not pre-selected)
-// CSV parsing library (install if not already: npm installpapaparse)
-import Papa from 'papaparse';
+import Papa from 'papaparse'; // CSV parsing library
+import { toast } from 'react-toastify'; // Import toast
 
 
 const DataEntryPage = () => {
@@ -29,6 +29,7 @@ const DataEntryPage = () => {
     const [athleteGender, setAthleteGender] = useState('Male');
     const [attemptNumber, setAttemptNumber] = useState(1);
     const [parameterValues, setParameterValues] = useState({}); // { parameterId: value, ... }
+    const [formErrors, setFormErrors] = useState({}); // For client-side validation feedback
 
     // State for existing entries for this batch
     const [existingEntries, setExistingEntries] = useState([]);
@@ -36,12 +37,13 @@ const DataEntryPage = () => {
 
     // CSV Upload
     const [csvFile, setCsvFile] = useState(null);
-    const [csvErrors, setCsvErrors] = useState([]);
-    const [csvSuccessCount, setCsvSuccessCount] = useState(0);
+    // const [csvParsingError, setCsvParsingError] = useState(''); // Replaced by toast for parsing errors
+    const [csvUploadResults, setCsvUploadResults] = useState(null); // To store { created: [], errors: [] } from backend
 
-    const [isLoading, setIsLoading] = useState(false);
-    const [isSubmitting, setIsSubmitting] = useState(false);
-    const [error, setError] = useState(null);
+    const [isLoading, setIsLoading] = useState(false); // For initial page/batch data loading
+    const [isSubmitting, setIsSubmitting] = useState(false); // For single entry submission
+    const [isUploadingCsv, setIsUploadingCsv] = useState(false); // For CSV upload process
+    // const [error, setError] = useState(null); // General page errors, replaced by toasts for operational errors
 
     // Fetch sessions for dropdown
     useEffect(() => {
@@ -49,7 +51,7 @@ const DataEntryPage = () => {
             setIsLoading(true);
             sessionService.getSessions()
                 .then(setSessions)
-                .catch(err => setError(err.message || 'Failed to load sessions'))
+                .catch(err => toast.error(err.message || 'Failed to load sessions'))
                 .finally(() => setIsLoading(false));
         }
     }, [batchIdFromParams]);
@@ -60,7 +62,7 @@ const DataEntryPage = () => {
             setIsLoading(true);
             sessionService.getBatchesForSession(selectedSessionId)
                 .then(setBatchesInSession)
-                .catch(err => setError(err.message || 'Failed to load batches for session'))
+                .catch(err => toast.error(err.message || 'Failed to load batches for session'))
                 .finally(() => setIsLoading(false));
         }
     }, [selectedSessionId, batchIdFromParams]);
@@ -75,7 +77,7 @@ const DataEntryPage = () => {
             return;
         }
         setIsLoading(true);
-        setError(null);
+        // setError(null); // Using toasts for errors during this fetch
         try {
             const batchDetails = await batchService.getBatchById(batchToLoadId);
             setCurrentBatch(batchDetails);
@@ -89,11 +91,14 @@ const DataEntryPage = () => {
             setAthleteId('');
             setAthleteName('');
             setAthleteAge('');
+            setAttemptNumber(1);
             setParameterValues({});
             setEditingEntry(null);
+            setFormErrors({});
 
         } catch (err) {
-            setError(err.response?.data?.message || err.message || 'Failed to load batch details or entries.');
+            const errorMsg = err.response?.data?.message || err.message || 'Failed to load batch details or entries.';
+            toast.error(errorMsg);
             setCurrentBatch(null); // Clear batch if error
             setAssessmentParameters([]);
             setBatchStudents([]);
@@ -122,23 +127,73 @@ const DataEntryPage = () => {
         }
     };
 
-    const handleParameterValueChange = (paramId, value) => {
-        setParameterValues(prev => ({ ...prev, [paramId]: value }));
+    const handleParameterValueChange = (paramId, value, type) => {
+        // Basic type awareness for input handling, though backend does final validation/conversion
+        let processedValue = value;
+        if (type === 'numeric' || type === 'rating') {
+            // Allow empty string for temporary input state, backend will convert to null or number
+            if (value === '' || value === null || value === undefined) {
+                processedValue = ''; // Or null, depends on how you want to handle empty numeric fields
+            } else if (!isNaN(Number(value))) {
+                 // Keep as string for input field, backend will parse to Number.
+                 // Or Number(value) if you want to store as number in state directly.
+                 // Storing as string in state allows for inputs like "12." before becoming "12.0"
+            } else {
+                // Could set an input-specific error here if value is not parseable as number
+            }
+        }
+        setParameterValues(prev => ({ ...prev, [paramId]: processedValue }));
+        // Clear specific form error for this field when user types
+        if (formErrors[paramId]) {
+            setFormErrors(prev => ({ ...prev, [paramId]: null }));
+        }
     };
+
+    const validateForm = () => {
+        const errors = {};
+        if (!selectedBatchId) errors.batch = "Batch selection is required.";
+        if (!currentBatch) errors.batchLoading = "Batch data is not loaded yet.";
+        if (!athleteId.trim()) errors.athleteId = "Athlete ID is required.";
+        if (!athleteName.trim()) errors.athleteName = "Athlete Name is required.";
+        if (athleteAge && (isNaN(parseInt(athleteAge)) || parseInt(athleteAge) <= 0 || parseInt(athleteAge) > 120 )) {
+            errors.athleteAge = "Invalid age.";
+        }
+        if (isNaN(parseInt(attemptNumber)) || parseInt(attemptNumber) < 1) {
+            errors.attemptNumber = "Attempt number must be 1 or greater.";
+        }
+
+        assessmentParameters.forEach(param => {
+            const value = parameterValues[param._id];
+            if (param.type === 'numeric' || param.type === 'rating') {
+                if (value !== undefined && value !== null && String(value).trim() !== '' && isNaN(Number(value))) {
+                    errors[param._id] = `Value for ${param.name} must be a number.`;
+                }
+            }
+            // Add more specific validation based on param.isRequired, param.min, param.max etc. if those were defined
+        });
+
+        // Example: Check if at least one parameter has a value if parameters exist
+        // if (assessmentParameters.length > 0) {
+        //     const hasAtLeastOneValue = Object.values(parameterValues).some(val => val !== undefined && String(val).trim() !== '');
+        //     if (!hasAtLeastOneValue) errors.parameters = "At least one parameter value must be entered.";
+        // }
+
+        setFormErrors(errors);
+        return Object.keys(errors).length === 0; // Return true if no errors
+    };
+
 
     const handleSubmitEntry = async (e) => {
         e.preventDefault();
-        if (!selectedBatchId || !currentBatch || !athleteId.trim() || !athleteName.trim()) {
-            setError('Batch, Athlete ID, and Athlete Name are required.');
-            return;
-        }
-        if (assessmentParameters.length > 0 && Object.keys(parameterValues).length === 0) {
-            setError('At least one parameter value must be entered.');
+        // setError(null); // No longer needed
+        setFormErrors({}); // Clear previous form errors
+
+        if (!validateForm()) { // validateForm now sets formErrors state
+            toast.warn("Please correct the errors in the form.");
             return;
         }
 
         setIsSubmitting(true);
-        setError(null);
 
         const entryDataPayload = {
             athleteId: athleteId.trim(),
@@ -146,26 +201,44 @@ const DataEntryPage = () => {
             athleteAge: athleteAge ? parseInt(athleteAge) : undefined,
             athleteGender,
             attemptNumber: parseInt(attemptNumber) || 1,
-            data: assessmentParameters.map(param => ({
-                parameterId: param._id,
-                // parameterName: param.name, // Will be set by backend
-                // unit: param.unit,         // Will be set by backend
-                value: parameterValues[param._id] !== undefined ? parameterValues[param._id] : null // Send null if not entered
-            })).filter(p => p.value !== null) // Optionally filter out params with no value entered
+            data: assessmentParameters.map(param => {
+                let valueToSubmit = parameterValues[param._id];
+                if ((param.type === 'numeric' || param.type === 'rating') && String(valueToSubmit).trim() === '') {
+                    valueToSubmit = null;
+                }
+                return {
+                    parameterId: param._id,
+                    value: valueToSubmit !== undefined ? valueToSubmit : null
+                };
+            }).filter(p => p.value !== null && p.value !== undefined && String(p.value).trim() !== '')
         };
+
+        if (assessmentParameters.length > 0 && entryDataPayload.data.length === 0) {
+             toast.error('At least one parameter value must be entered and valid.');
+             setIsSubmitting(false);
+             return;
+        }
 
         try {
             if (editingEntry) {
                 await assessmentEntryService.updateAssessmentEntry(editingEntry._id, entryDataPayload);
-                alert('Entry updated successfully!');
+                toast.success('Entry updated successfully!');
             } else {
                 await assessmentEntryService.createAssessmentEntry(selectedBatchId, entryDataPayload);
-                alert('Entry submitted successfully!');
+                toast.success('Entry submitted successfully!');
             }
-            // Refresh entries and reset form
             fetchBatchDataAndEntries(selectedBatchId);
+            // Reset form fields after successful submission (if not editing)
+            if (!editingEntry) {
+                setAthleteId('');
+                setAthleteName('');
+                setAthleteAge('');
+                setAttemptNumber(1);
+                setParameterValues({});
+            }
         } catch (err) {
-            setError(err.response?.data?.message || err.message || 'Failed to submit entry.');
+            const errorMsg = err.response?.data?.message || err.message || 'Failed to submit entry.';
+            toast.error(errorMsg);
         } finally {
             setIsSubmitting(false);
         }
@@ -181,18 +254,21 @@ const DataEntryPage = () => {
         const pValues = {};
         entry.data.forEach(pd => { pValues[pd.parameterId] = pd.rawValue !== undefined ? pd.rawValue : pd.value; });
         setParameterValues(pValues);
-        window.scrollTo(0,0); // Scroll to top to see the form
+        setFormErrors({}); // Clear any previous form errors
+        window.scrollTo(0,0);
     };
 
     const handleDeleteEntry = async (entryId) => {
         if (window.confirm("Are you sure you want to delete this entry?")) {
-            setIsSubmitting(true); // Use general submitting flag
+            // Using isSubmitting for general loading state for this action too
+            setIsSubmitting(true);
             try {
                 await assessmentEntryService.deleteAssessmentEntry(entryId);
-                alert('Entry deleted successfully!');
+                toast.success('Entry deleted successfully!');
                 fetchBatchDataAndEntries(selectedBatchId);
             } catch (err) {
-                setError(err.response?.data?.message || err.message || 'Failed to delete entry.');
+                const errorMsg = err.response?.data?.message || err.message || 'Failed to delete entry.';
+                toast.error(errorMsg);
             } finally {
                 setIsSubmitting(false);
             }
@@ -201,95 +277,123 @@ const DataEntryPage = () => {
 
     const handleFileChange = (event) => {
         setCsvFile(event.target.files[0]);
-        setCsvErrors([]);
-        setCsvSuccessCount(0);
+        // setCsvParsingError(''); // Replaced by toast
+        setCsvUploadResults(null);
     };
 
     const handleCSVUpload = () => {
-        if (!csvFile || !selectedBatchId || !currentBatch?.assessmentId?.parameters) {
-            setError("Please select a batch with an assessment and a CSV file to upload.");
+        if (!csvFile) {
+            toast.error("Please select a CSV file to upload.");
             return;
         }
-        setIsSubmitting(true);
-        setCsvErrors([]);
-        setCsvSuccessCount(0);
+        if (!selectedBatchId || !currentBatch?.assessmentId?.parameters) {
+            toast.error("Please select a batch with an assessment template first.");
+            return;
+        }
+
+        setIsUploadingCsv(true); // Specific loading state for CSV
+        // setCsvParsingError(''); // Replaced by toast
+        setCsvUploadResults(null);
 
         Papa.parse(csvFile, {
             header: true,
-            skipEmptyLines: true,
+            skipEmptyLines: 'greedy',
+            dynamicTyping: false,
             complete: async (results) => {
+                if (results.errors.length > 0) {
+                    console.error("CSV Parsing errors:", results.errors);
+                    const errorMessages = results.errors.map(e => e.message).join(', ');
+                    toast.error(`Error parsing CSV: ${errorMessages}. Please check file format.`);
+                    setIsUploadingCsv(false);
+                    return;
+                }
+
                 const parsedEntries = [];
-                const localErrors = [];
-                const assessmentParamsMap = new Map(currentBatch.assessmentId.parameters.map(p => [`${p.name} (${p.unit || 'value'})`, p._id]));
+                const localParsingErrors = [];
+
+                const assessmentParamsDetails = currentBatch.assessmentId.parameters;
+                const paramHeaderToIdMap = new Map();
+                assessmentParamsDetails.forEach(p => {
+                    paramHeaderToIdMap.set(`${p.name} (${p.unit || 'value'})`, p._id.toString());
+                    paramHeaderToIdMap.set(p.name, p._id.toString());
+                });
 
                 results.data.forEach((row, index) => {
                     const athleteId = row['AthleteID']?.trim();
                     const athleteName = row['AthleteName']?.trim();
+
                     if (!athleteId || !athleteName) {
-                        localErrors.push({ row: index + 1, error: "AthleteID and AthleteName are required."});
+                        if (Object.values(row).every(val => String(val).trim() === '')) return;
+                        localParsingErrors.push({ row: index + 2, error: "AthleteID and AthleteName are required." });
                         return;
                     }
-                    const entry = {
-                        athleteId,
-                        athleteName,
+
+                    const entryData = {
+                        athleteId, athleteName,
                         athleteAge: row['AthleteAge'] ? parseInt(row['AthleteAge']) : undefined,
                         athleteGender: row['AthleteGender']?.trim() || 'Not Specified',
                         attemptNumber: row['AttemptNumber (Optional)'] ? parseInt(row['AttemptNumber (Optional)']) : 1,
                         data: []
                     };
-                    let hasParamData = false;
-                    assessmentParamsMap.forEach((paramId, headerName) => {
-                        if (row[headerName] !== undefined && row[headerName] !== null && row[headerName] !== '') {
-                            entry.data.push({ parameterId: paramId, value: row[headerName] });
-                            hasParamData = true;
-                        }
-                    });
 
-                    if (!hasParamData && assessmentParameters.length > 0) { // Only error if assessment expects params
-                        localErrors.push({row: index + 1, athleteId, error: "No parameter data found for this athlete."});
-                        return;
+                    let paramsFoundForRow = 0;
+                    for (const headerKey in row) {
+                        if (['AthleteID', 'AthleteName', 'AthleteAge', 'AthleteGender', 'AttemptNumber (Optional)'].includes(headerKey)) continue;
+                        const paramId = paramHeaderToIdMap.get(headerKey.trim());
+                        if (paramId) {
+                            const value = String(row[headerKey]).trim();
+                            if (value !== '') {
+                                entryData.data.push({ parameterId: paramId, value: value });
+                                paramsFoundForRow++;
+                            }
+                        }
                     }
-                    parsedEntries.push(entry);
+
+                    if (assessmentParamsDetails.length === 0 || paramsFoundForRow > 0) {
+                        parsedEntries.push(entryData);
+                    } else if (assessmentParamsDetails.length > 0 && paramsFoundForRow === 0) {
+                         localParsingErrors.push({ row: index + 2, athleteId, error: "No parameter data found for this athlete, but assessment expects parameters." });
+                    }
                 });
 
-                if (localErrors.length > 0) {
-                    setCsvErrors(localErrors);
-                    setIsSubmitting(false);
+                if (localParsingErrors.length > 0) {
+                    toast.error("Found errors in CSV data. Please correct them and try again. See details below.");
+                    setCsvUploadResults({ created: [], errors: localParsingErrors.map(e => ({...e, from: 'client-parser'})) });
+                    setIsUploadingCsv(false);
                     return;
                 }
 
                 if (parsedEntries.length === 0) {
-                    setError("No valid entries found in CSV to upload.");
-                     setIsSubmitting(false);
+                    toast.warn("No valid entries found in CSV to upload after parsing.");
+                    setIsUploadingCsv(false);
                     return;
                 }
 
                 try {
                     const response = await assessmentEntryService.createBulkAssessmentEntries(selectedBatchId, parsedEntries);
-                    setCsvSuccessCount(response.results?.created?.length || 0);
-                    if (response.results?.errors?.length > 0) {
-                        setCsvErrors(response.results.errors.map(err => ({
-                            athleteId: err.athleteId,
-                            error: `${err.error} ${err.details || ''}`
-                        })));
-                    }
+                    setCsvUploadResults(response.results);
                     if (response.results?.created?.length > 0) {
-                         alert(`${response.results.created.length} entries uploaded successfully!`);
-                         fetchBatchDataAndEntries(selectedBatchId); // Refresh list
-                    } else if (!response.results?.errors?.length) {
-                        alert("Bulk upload complete. No new entries were created (perhaps they were all duplicates or other issues).");
+                         toast.success(`${response.results.created.length} entries from CSV uploaded successfully!`);
+                         fetchBatchDataAndEntries(selectedBatchId);
                     }
-
+                    if (response.results?.errors?.length > 0) {
+                        toast.error("Some entries from CSV failed to save on the server. See details below.");
+                    }
+                     if (response.results?.created?.length === 0 && response.results?.errors?.length === 0) {
+                        toast.info("CSV processed. No new entries were created (they may have been duplicates or empty).");
+                    }
                 } catch (err) {
-                    setError(err.response?.data?.message || err.message || 'Bulk upload failed.');
-                     setCsvErrors([{error: `Server error during bulk upload: ${err.response?.data?.message || err.message}`}]);
+                    const errMsg = err.response?.data?.message || err.message || 'Bulk CSV upload failed due to a server error.';
+                    toast.error(errMsg);
+                    setCsvUploadResults({ created: [], errors: [{ error: errMsg, from: 'server-request'}] });
                 } finally {
-                    setIsSubmitting(false);
+                    setIsUploadingCsv(false);
                 }
             },
-            error: (error) => {
-                setError(`CSV parsing error: ${error.message}`);
-                setIsSubmitting(false);
+            error: (err) => {
+                console.error("Papa.parse error:", err);
+                toast.error(`CSV File Reading Error: ${err.message}`);
+                setIsUploadingCsv(false);
             }
         });
     };
@@ -363,16 +467,25 @@ const DataEntryPage = () => {
                     {/* Single Entry Form */}
                     <h4>{editingEntry ? "Edit Entry" : "Add New Entry"}</h4>
                     <form onSubmit={handleSubmitEntry} style={{border: '1px solid #ccc', padding: '15px', marginBottom: '20px'}}>
-                        <div style={{display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px'}}>
+                        <div style={{display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '10px'}}>
                             <div>
                                 <label htmlFor="athleteId">Athlete ID:</label>
                                 <input list="batchStudentIds" type="text" id="athleteId" value={athleteId} onChange={handleAthleteIdChange} required disabled={!!editingEntry} />
                                 <datalist id="batchStudentIds">
                                     {batchStudents.map(s => <option key={s.studentId} value={s.studentId}>{s.name}</option>)}
                                 </datalist>
+                                {formErrors.athleteId && <p style={{color: 'red', fontSize: '0.8em'}}>{formErrors.athleteId}</p>}
                             </div>
-                            <div><label htmlFor="athleteName">Athlete Name:</label><input type="text" id="athleteName" value={athleteName} onChange={e => setAthleteName(e.target.value)} required /></div>
-                            <div><label htmlFor="athleteAge">Age:</label><input type="number" id="athleteAge" value={athleteAge} onChange={e => setAthleteAge(e.target.value)} /></div>
+                            <div>
+                                <label htmlFor="athleteName">Athlete Name:</label>
+                                <input type="text" id="athleteName" value={athleteName} onChange={e => setAthleteName(e.target.value)} required />
+                                {formErrors.athleteName && <p style={{color: 'red', fontSize: '0.8em'}}>{formErrors.athleteName}</p>}
+                            </div>
+                            <div>
+                                <label htmlFor="athleteAge">Age:</label>
+                                <input type="number" id="athleteAge" value={athleteAge} onChange={e => setAthleteAge(e.target.value)} />
+                                {formErrors.athleteAge && <p style={{color: 'red', fontSize: '0.8em'}}>{formErrors.athleteAge}</p>}
+                            </div>
                             <div>
                                 <label htmlFor="athleteGender">Gender:</label>
                                 <select id="athleteGender" value={athleteGender} onChange={e => setAthleteGender(e.target.value)}>
@@ -385,6 +498,7 @@ const DataEntryPage = () => {
                              <div>
                                 <label htmlFor="attemptNumber">Attempt Number:</label>
                                 <input type="number" id="attemptNumber" value={attemptNumber} onChange={e => setAttemptNumber(e.target.value)} min="1" defaultValue="1" />
+                                {formErrors.attemptNumber && <p style={{color: 'red', fontSize: '0.8em'}}>{formErrors.attemptNumber}</p>}
                             </div>
                         </div>
 
@@ -395,42 +509,68 @@ const DataEntryPage = () => {
                                 <input
                                     type={param.type === 'numeric' || param.type === 'rating' ? 'number' : (param.type === 'time' ? 'text' : 'text')} // 'time' could be 'number' if storing seconds
                                     id={`param-${param._id}`}
-                                    placeholder={param.type === 'time' ? 'e.g., 12.34 (s) or 01:30.5 (m:s.ms)' : ''}
+                                    placeholder={param.type === 'time' ? 'e.g., 12.34 (s) or 01:30.5 (m:s.ms)' : (param.type === 'numeric' || param.type === 'rating' ? 'Enter number' : 'Enter text')}
                                     value={parameterValues[param._id] || ''}
-                                    onChange={e => handleParameterValueChange(param._id, e.target.value)}
-                                    step={param.type === 'numeric' && (param.unit === '%' || param.unit === 'score') ? '1' : 'any'} // Basic step
+                                    onChange={e => handleParameterValueChange(param._id, e.target.value, param.type)}
+                                    step={param.type === 'numeric' && (param.unit === '%' || param.unit === 'score') ? '1' : 'any'}
                                 />
+                                {formErrors[param._id] && <p style={{color: 'red', fontSize: '0.8em'}}>{formErrors[param._id]}</p>}
                             </div>
                         )) : <p>No parameters defined for this assessment.</p>}
+                        {formErrors.parameters && <p style={{color: 'red', fontSize: '0.8em'}}>{formErrors.parameters}</p>}
 
-                        <button type="submit" disabled={isSubmitting || assessmentParameters.length === 0} style={{marginTop: '10px'}}>
+                        <button type="submit" disabled={isSubmitting || (currentBatch && assessmentParameters.length === 0 && !confirm("No parameters defined for this assessment. Submit basic athlete info only?"))} style={{marginTop: '10px'}}>
                             {isSubmitting ? 'Submitting...' : (editingEntry ? 'Update Entry' : 'Submit Entry')}
                         </button>
-                        {editingEntry && <button type="button" onClick={() => {setEditingEntry(null); setAthleteId(''); setAthleteName(''); setParameterValues({});}} style={{marginLeft: '10px', backgroundColor: 'grey'}}>Cancel Edit</button>}
+                        {editingEntry && <button type="button" onClick={() => {setEditingEntry(null); setAthleteId(''); setAthleteName(''); setAthleteAge(''); setParameterValues({}); setFormErrors({});}} style={{marginLeft: '10px', backgroundColor: 'grey'}}>Cancel Edit</button>}
                     </form>
 
                     {/* CSV Bulk Upload Section */}
                     <h4>Bulk Upload via CSV</h4>
                     <div style={{border: '1px solid #ccc', padding: '15px', marginBottom: '20px'}}>
-                        <button type="button" onClick={downloadCSVTemplate} disabled={!currentBatch || assessmentParameters.length === 0}>
-                            Download CSV Template for "{currentBatch.assessmentId?.name || 'this Batch'}"
+                        <button
+                            type="button"
+                            onClick={downloadCSVTemplate}
+                            disabled={!currentBatch || !assessmentParameters || assessmentParameters.length === 0}
+                        >
+                            Download CSV Template for "{currentBatch.assessmentId?.name || 'Selected Batch'}"
                         </button>
-                        <p style={{fontSize:'0.9em', color: '#555'}}>Template columns: AthleteID, AthleteName, AthleteAge, AthleteGender, AttemptNumber (Optional), then one column for each parameter like "Parameter Name (unit)".</p>
-                        <input type="file" accept=".csv" onChange={handleFileChange} />
-                        <button onClick={handleCSVUpload} disabled={!csvFile || isSubmitting || assessmentParameters.length === 0}>
-                            {isSubmitting ? 'Uploading...' : 'Upload CSV'}
+                        <p style={{fontSize:'0.9em', color: '#555'}}>
+                            Required columns: <strong>AthleteID, AthleteName</strong>. Optional: <strong>AthleteAge, AthleteGender, AttemptNumber (Optional)</strong>.
+                            Then one column for each parameter like: <strong>"Parameter Name (unit)"</strong>.
+                        </p>
+                        <input type="file" accept=".csv" onChange={handleFileChange} key={csvFile ? 'file-selected' : 'no-file'} /> {/* Add key to reset input */}
+                        <button
+                            onClick={handleCSVUpload}
+                            disabled={!csvFile || isSubmitting || !currentBatch || !assessmentParameters || assessmentParameters.length === 0}
+                            style={{marginLeft: '10px'}}
+                        >
+                            {isSubmitting ? 'Uploading CSV...' : 'Upload CSV & Process'}
                         </button>
-                        {csvSuccessCount > 0 && <p style={{color: 'green'}}>{csvSuccessCount} entries from CSV processed successfully.</p>}
-                        {csvErrors.length > 0 && (
-                            <div style={{color: 'red', marginTop: '10px'}}>
-                                <p>CSV Upload Errors:</p>
-                                <ul style={{maxHeight: '150px', overflowY: 'auto'}}>
-                                    {csvErrors.map((err, index) => <li key={index}>Row {err.row || '-'}{err.athleteId ? ` (Athlete: ${err.athleteId})` : ''}: {err.error}</li>)}
-                                </ul>
+
+                        {csvParsingError && <p style={{color: 'red', marginTop: '10px'}}>{csvParsingError}</p>}
+                        {csvUploadResults && (
+                            <div style={{marginTop: '10px', fontSize: '0.9em'}}>
+                                {csvUploadResults.created?.length > 0 &&
+                                    <p style={{color: 'green'}}>Successfully created/updated {csvUploadResults.created.length} entries from CSV.</p>
+                                }
+                                {csvUploadResults.errors?.length > 0 && (
+                                    <>
+                                        <p style={{color: 'red'}}>Encountered {csvUploadResults.errors.length} errors during CSV processing:</p>
+                                        <ul style={{maxHeight: '150px', overflowY: 'auto', border: '1px solid #f00', padding: '5px'}}>
+                                            {csvUploadResults.errors.map((err, index) => (
+                                                <li key={index}>
+                                                    {err.row && `Row ${err.row}: `}
+                                                    {err.athleteId && `Athlete ${err.athleteId}: `}
+                                                    {err.error}
+                                                </li>
+                                            ))}
+                                        </ul>
+                                    </>
+                                )}
                             </div>
                         )}
                     </div>
-
 
                     {/* Existing Entries List */}
                     <h4>Existing Entries for this Batch ({existingEntries.length})</h4>

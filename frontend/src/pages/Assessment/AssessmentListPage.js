@@ -1,24 +1,27 @@
 import React, { useState, useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import assessmentService from '../../api/assessmentService';
+import { toast } from 'react-toastify'; // Import toast
 
 const AssessmentListPage = () => {
     const [assessments, setAssessments] = useState([]);
     const [isLoading, setIsLoading] = useState(false);
-    const [error, setError] = useState(null);
+    // const [error, setError] = useState(null); // Replaced by toast for operational errors
     const navigate = useNavigate();
 
-    const fetchAssessments = () => {
-        setIsLoading(true);
+    const fetchAssessments = (showLoadingMessage = true) => {
+        if(showLoadingMessage) setIsLoading(true);
         assessmentService.getAssessments()
             .then(data => {
                 setAssessments(data);
-                setIsLoading(false);
             })
             .catch(err => {
-                setError(err.message || 'Failed to fetch assessments');
-                setIsLoading(false);
+                const errorMsg = err.response?.data?.message || err.message || 'Failed to fetch assessments';
+                toast.error(errorMsg);
                 console.error(err);
+            })
+            .finally(() => {
+                if(showLoadingMessage) setIsLoading(false);
             });
     };
 
@@ -26,40 +29,47 @@ const AssessmentListPage = () => {
         fetchAssessments();
     }, []);
 
-    const handleDelete = async (id) => {
-        if (window.confirm('Are you sure you want to delete this assessment? This action cannot be undone.')) {
-            setIsLoading(true);
+    const handleDelete = async (id, assessmentName) => {
+        if (window.confirm(`Are you sure you want to delete the assessment: "${assessmentName}"? This action cannot be undone.`)) {
+            // setIsLoading(true); // Handled by general loading or specific action loading state if preferred
             try {
                 await assessmentService.deleteAssessment(id);
-                setAssessments(prev => prev.filter(assessment => assessment._id !== id)); // Update UI optimistically or re-fetch
-                // fetchAssessments(); // Re-fetch to ensure consistency
+                toast.success(`Assessment "${assessmentName}" deleted successfully.`);
+                setAssessments(prev => prev.filter(assessment => assessment._id !== id));
             } catch (err) {
-                setError(err.message || 'Failed to delete assessment');
+                const errorMsg = err.response?.data?.message || err.message || 'Failed to delete assessment.';
+                toast.error(errorMsg);
                 console.error(err);
             } finally {
-                setIsLoading(false);
+                // setIsLoading(false);
             }
         }
     };
 
-    const handleClone = async (id) => {
-        if (window.confirm('Are you sure you want to clone this assessment? A new draft will be created.')) {
-            setIsLoading(true);
+    const handleClone = async (id, assessmentName) => {
+        if (window.confirm(`Are you sure you want to clone the assessment: "${assessmentName}"? A new draft will be created.`)) {
+            // setIsLoading(true);
             try {
                 const clonedAssessment = await assessmentService.cloneAssessment(id);
-                // navigate(`/assessments/edit/${clonedAssessment._id}`); // Option 1: Go to edit page of the clone
-                fetchAssessments(); // Option 2: Refresh list to show the clone
+                toast.success(`Assessment "${assessmentName}" cloned successfully as "${clonedAssessment.name}".`);
+                fetchAssessments(false); // Re-fetch list without full page loading indicator
+                // Optionally navigate to the edit page of the clone:
+                // navigate(`/assessments/edit/${clonedAssessment._id}`);
             } catch (err) {
-                setError(err.message || 'Failed to clone assessment');
+                const errorMsg = err.response?.data?.message || err.message || 'Failed to clone assessment.';
+                toast.error(errorMsg);
                 console.error(err);
             } finally {
-                setIsLoading(false);
+                // setIsLoading(false);
             }
         }
     };
 
     if (isLoading && assessments.length === 0) return <p>Loading assessments...</p>;
-    if (error) return <p style={{ color: 'red' }}>Error: {error}</p>;
+    // Error display is handled by toasts for operational errors.
+    // A general error for initial load could still be here if needed:
+    // if (error && assessments.length === 0) return <p style={{ color: 'red' }}>Error: {error}</p>;
+
 
     return (
         <div>
@@ -97,8 +107,8 @@ const AssessmentListPage = () => {
                                     <Link to={`/assessments/edit/${assessment._id}`}>
                                         <button>Edit</button>
                                     </Link>
-                                    <button onClick={() => handleClone(assessment._id)} style={{marginLeft: '5px'}}>Clone</button>
-                                    <button onClick={() => handleDelete(assessment._id)} style={{marginLeft: '5px', backgroundColor: 'red'}}>Delete</button>
+                                    <button onClick={() => handleClone(assessment._id, assessment.name)} style={{marginLeft: '5px'}}>Clone</button>
+                                    <button onClick={() => handleDelete(assessment._id, assessment.name)} style={{marginLeft: '5px', backgroundColor: 'red'}}>Delete</button>
                                     {/* TODO: Add a "View Details" button/link */}
                                 </td>
                             </tr>

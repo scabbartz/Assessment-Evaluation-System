@@ -4,31 +4,79 @@ const Assessment = require('../models/AssessmentModel'); // To validate paramete
 const mongoose = require('mongoose');
 
 // Helper function for basic validation of parameter data against assessment template
-// This is a simplified version. More robust validation would check types, ranges, etc.
-const validateParameterData = async (assessmentId, entryData) => {
+// This function now performs more robust type checking.
+const validateParameterData = async (assessmentId, entryDataFromRequest) => {
     const assessmentTemplate = await Assessment.findById(assessmentId).select('parameters');
     if (!assessmentTemplate) {
         throw new Error('Assessment template not found for validation.');
     }
-    const templateParams = new Map(assessmentTemplate.parameters.map(p => [p._id.toString(), p]));
+    const templateParamsMap = new Map(assessmentTemplate.parameters.map(p => [p._id.toString(), p]));
+    const validatedDataArray = [];
 
-    for (const paramEntry of entryData) {
-        if (!mongoose.Types.ObjectId.isValid(paramEntry.parameterId)) {
-             throw new Error(`Invalid parameterId format: ${paramEntry.parameterId}`);
+    for (const paramEntry of entryDataFromRequest) {
+        if (!paramEntry.parameterId || !mongoose.Types.ObjectId.isValid(paramEntry.parameterId)) {
+             throw new Error(`Invalid or missing parameterId: ${paramEntry.parameterId}`);
         }
-        const templateParam = templateParams.get(paramEntry.parameterId.toString());
+        const templateParam = templateParamsMap.get(paramEntry.parameterId.toString());
         if (!templateParam) {
-            throw new Error(`Parameter ID ${paramEntry.parameterId} (${paramEntry.parameterName || ''}) not found in assessment template.`);
+            throw new Error(`Parameter ID ${paramEntry.parameterId} not found in assessment template.`);
         }
-        // TODO: Add more specific type validation based on templateParam.type
-        // e.g., if templateParam.type is 'numeric', paramEntry.value should be a number.
-        // For now, just ensure name and unit match if provided, or fill them in.
-        paramEntry.parameterName = templateParam.name; // Ensure correct name
-        paramEntry.unit = templateParam.unit;         // Ensure correct unit
 
-        if (paramEntry.rawValue === undefined) paramEntry.rawValue = paramEntry.value; // Ensure rawValue is set
+        let originalValue = paramEntry.value;
+        let processedValue = originalValue;
+
+        // Type validation and potential conversion
+        switch (templateParam.type) {
+            case 'numeric':
+            case 'rating': // Ratings are often numeric (e.g., 1-5, 1-10)
+                if (originalValue === null || originalValue === undefined || String(originalValue).trim() === '') {
+                    processedValue = null; // Allow explicitly null/empty for non-required numerics
+                } else {
+                    processedValue = Number(originalValue);
+                    if (isNaN(processedValue)) {
+                        throw new Error(`Value for numeric parameter "${templateParam.name}" (${originalValue}) is not a valid number.`);
+                    }
+                }
+                break;
+            case 'time':
+                // For time, we might expect a string like "MM:SS.ms" or just seconds.
+                // For now, let's assume it's stored as a string if complex, or number if seconds.
+                // If it's meant to be numeric (e.g., total seconds), conversion logic would go here.
+                // Example: if (typeof originalValue === 'string' && originalValue.includes(':')) { processedValue = convertTimeToSeconds(originalValue); }
+                // For now, accept as is if it's a string or number.
+                if (originalValue !== null && originalValue !== undefined && typeof originalValue !== 'string' && typeof originalValue !== 'number') {
+                     throw new Error(`Value for time parameter "${templateParam.name}" must be a string or number.`);
+                }
+                break;
+            case 'text':
+            case 'choice': // Choice might be stored as the selected string value
+                if (originalValue !== null && originalValue !== undefined && typeof originalValue !== 'string') {
+                    processedValue = String(originalValue); // Ensure it's a string
+                }
+                break;
+            default:
+                // Unknown parameter type, accept value as is or throw error
+                console.warn(`Unknown parameter type "${templateParam.type}" for parameter "${templateParam.name}". Accepting value as is.`);
+                break;
+        }
+
+        // TODO: Add range validation if min/max are defined on templateParam.customBands or dedicated fields.
+        // TODO: For 'choice' type, validate against allowed choices in templateParam.customBands.
+
+        const validatedParam = {
+            parameterId: templateParam._id,
+            parameterName: templateParam.name,
+            unit: templateParam.unit,
+            value: processedValue, // The potentially type-converted value
+            rawValue: originalValue // Always store the original submitted value
+        };
+        if (paramEntry.notes) { // Preserve notes if provided
+            validatedParam.notes = paramEntry.notes;
+        }
+
+        validatedDataArray.push(validatedParam);
     }
-    return entryData; // Return potentially augmented data
+    return validatedDataArray; // Return the new array of validated parameter data objects
 };
 
 
