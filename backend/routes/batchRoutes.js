@@ -5,7 +5,8 @@ const {
     updateBatch,
     deleteBatch,
     updateBatchStatus,
-    // TODO: Add controller for calculateResults, publishBatch etc. if they become separate actions
+    processBatchResults, // Added new import
+    // TODO: Add controller for publishBatch etc. if they become separate actions
 } = require('../controllers/batchController');
 
 // TODO: Add protect and authorize middleware
@@ -19,12 +20,12 @@ router.route('/:batchId')
 router.route('/:batchId/status')
     .patch(updateBatchStatus); // PATCH /api/batches/:batchId/status - For workflow transitions
 
-// Example for future actions from 2.5:
-// router.route('/:batchId/calculate-results')
-//     .post(calculateBatchResults); // POST /api/batches/:batchId/calculate-results
+router.route('/:batchId/process-results')
+    .post(processBatchResults); // POST /api/batches/:batchId/process-results - For Z-scores, bands etc.
 
+// TODO: publishBatchResults might be a specific status update or a more complex action
 // router.route('/:batchId/publish')
-//     .post(publishBatchResults);    // POST /api/batches/:batchId/publish (could also be part of status update)
+//     .post(publishBatchResults);
 
 
 module.exports = router;

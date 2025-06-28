@@ -1,0 +1,45 @@
+{
+    "version": 2,
+    "builds": [
+        {
+            "src": "backend/server.js",
+            "use": "@vercel/node"
+        },
+        {
+            "src": "frontend/package.json",
+            "use": "@vercel/static-build",
+            "config": {
+                "buildCommand": "npm run build",
+                "outputDirectory": "build"
+            }
+        }
+    ],
+    "routes": [
+        {
+            "src": "/api/(.*)",
+            "dest": "backend/server.js"
+        },
+        {
+            "src": "/(.*)",
+            "dest": "frontend/build/$1",
+            "continue": true
+        },
+        {
+            "handle": "filesystem"
+        },
+        {
+            "src": "/(.*)",
+            "dest": "frontend/build/index.html"
+        }
+    ],
+    "env": {
+        "NODE_ENV": "production",
+        "MONGO_URI": "@mongo_uri",
+        "JWT_SECRET": "@jwt_secret",
+        "JWT_EXPIRE": "30d",
+        "PORT": "5001"
+    },
+    "github": {
+        "silent": true
+    }
+}

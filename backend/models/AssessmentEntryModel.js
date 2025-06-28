@@ -59,6 +59,12 @@ const assessmentEntrySchema = new Schema({
     overallScore: { type: Number }, // If a composite score is calculated
     overallBand: { type: String },  // If an overall band is assigned
 
+    source: { // Optional: To track the origin of the data entry
+        type: String,
+        trim: true,
+        default: 'manual_entry' // Default source
+        // Examples: 'csv_import', 'wearable_garmin_connect', 'api_ingestion_v1'
+    }
 }, { timestamps: true });
 
 // Compound index for ensuring uniqueness of an entry for an athlete in a batch for a specific attempt (if applicable)

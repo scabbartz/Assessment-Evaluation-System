@@ -12,8 +12,13 @@
   "dependencies": {
     "express": "^4.18.2",
     "mongoose": "^6.10.0",  // Updated to Mongoose 6.x
-    "dotenv": "^16.0.3"
-    // Add other dependencies here as needed: bcryptjs, jsonwebtoken, cors, morgan, etc.
+    "dotenv": "^16.0.3",
+    "bcryptjs": "^2.4.3", // Added as it's used in UserModel
+    "swagger-jsdoc": "^6.2.8", // Added for API docs
+    "swagger-ui-express": "^4.6.2", // Added for API docs UI
+    "helmet": "^6.0.1", // Added for security headers
+    "cors": "^2.8.5" // Added for Cross-Origin Resource Sharing
+    // Add other dependencies here as needed: jsonwebtoken, morgan, etc.
   },
   "devDependencies": {
     "nodemon": "^2.0.20"

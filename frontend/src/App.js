@@ -16,30 +16,112 @@ import BatchFormPage from './pages/Batch/BatchFormPage';
 // Data Entry Page
 import DataEntryPage from './pages/DataEntry/DataEntryPage';
 
-// TODO: Import other pages: ReportPage etc.
-// TODO: Import Navbar, Footer, other layout components
+// Reporting Pages
+import IndividualReportPage from './pages/Reporting/IndividualReportPage';
+import CohortAnalyticsPage from './pages/Reporting/CohortAnalyticsPage';
+
+// Auth Pages
+import LoginPage from './pages/Auth/LoginPage';
+import RegisterPage from './pages/Auth/RegisterPage';
+
+// TODO: Import other pages for User Management, etc.
+// TODO: Import Navbar, Footer, other layout components, AuthContext
+import authService from './api/authService'; // To get local user for Navbar
+import React, { useState, useEffect /*, createContext, useContext */ } from 'react'; // Added useState, useEffect
+
+// --- Placeholder for AuthContext ---
+// const AuthContext = createContext(null);
+// export const useAuth = () => useContext(AuthContext);
+// const AuthProvider = ({ children }) => {
+//   const [currentUser, setCurrentUser] = useState(authService.getLocalUser());
+//   const login = (userData) => { setCurrentUser(userData); /* localStorage is handled by authService */ };
+//   const logout = () => { authService.logout(); setCurrentUser(null); };
+//   return <AuthContext.Provider value={{ currentUser, login, logout }}>{children}</AuthContext.Provider>;
+// };
+// --- End AuthContext Placeholder ---
+
 
 // Basic Navbar for navigation
-const Navbar = () => (
-  <nav style={{ marginBottom: '20px', borderBottom: '1px solid #ccc', paddingBottom: '10px' }}>
-    <ul style={{ listStyle: 'none', padding: 0, margin: 0 }}>
-      <li style={{ display: 'inline', marginRight: '10px' }}><Link to="/">Home (Assessments)</Link></li>
-      <li style={{ display: 'inline', marginRight: '10px' }}><Link to="/assessments">Assessments</Link></li>
-      <li style={{ display: 'inline', marginRight: '10px' }}><Link to="/sessions">Sessions</Link></li>
-      {/* Add other top-level navigation links here */}
-    </ul>
-  </nav>
-);
+const Navbar = () => {
+  const navigate = useNavigate(); // To redirect on logout
+  // For scaffolding, directly check localStorage or use a simple state.
+  // In a real app, this would come from AuthContext.
+  const [user, setUser] = useState(authService.getLocalUser());
+
+  useEffect(() => {
+    // Listen to storage changes or custom events if login/logout happens in other tabs/components
+    // This is a simplified way to update navbar on login/logout for scaffolding
+    const handleStorageChange = () => {
+        setUser(authService.getLocalUser());
+    };
+    window.addEventListener('storage', handleStorageChange); // For changes in other tabs
+    // Custom event for same-tab updates (authService.login/logout would dispatch this)
+    window.addEventListener('authChange', handleStorageChange);
+
+    return () => {
+        window.removeEventListener('storage', handleStorageChange);
+        window.removeEventListener('authChange', handleStorageChange);
+    };
+  }, []);
+
+
+  const handleLogout = () => {
+    authService.logout();
+    setUser(null); // Update local state
+    window.dispatchEvent(new Event('authChange')); // Notify other components like App.js if needed
+    navigate('/login');
+  };
+
+  return (
+    <nav style={{ marginBottom: '20px', borderBottom: '1px solid #ccc', paddingBottom: '10px' }}>
+      <ul style={{ listStyle: 'none', padding: 0, margin: 0, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <div> {/* Left side links */}
+            <li style={{ display: 'inline', marginRight: '10px' }}><Link to="/">Home</Link></li>
+            <li style={{ display: 'inline', marginRight: '10px' }}><Link to="/assessments">Assessments</Link></li>
+            <li style={{ display: 'inline', marginRight: '10px' }}><Link to="/sessions">Sessions</Link></li>
+            {/* TODO: Conditionally show other links based on role */}
+            {user && (<li style={{ display: 'inline', marginRight: '10px' }}><Link to="/data-entry">Data Entry</Link></li>)}
+        </div>
+        <div> {/* Right side links */}
+            {user ? (
+                <>
+                    <li style={{ display: 'inline', marginRight: '10px' }}>Welcome, {user.name}! ({user.role})</li>
+                    {/* <li style={{ display: 'inline', marginRight: '10px' }}><Link to="/profile">My Profile</Link></li> {/* TODO: Profile page */}
+                    <li style={{ display: 'inline' }}>
+                        <button onClick={handleLogout} style={{background: 'none', border: 'none', color: 'blue', textDecoration: 'underline', cursor: 'pointer'}}>Logout</button>
+                    </li>
+                </>
+            ) : (
+                <>
+                    <li style={{ display: 'inline', marginRight: '10px' }}><Link to="/login">Login</Link></li>
+                    <li style={{ display: 'inline' }}><Link to="/register">Register</Link></li>
+                </>
+            )}
+        </div>
+      </ul>
+    </nav>
+  );
+};
 
 
 function App() {
-  return (
-    <Router>
-      <div className="container" style={{padding: '20px'}}>
-        <Navbar /> {/* Added Navbar */}
-        <h1>Athlete Assessment System</h1> {/* Temporary Title - Could be part of Navbar/Header component */}
+  // Placeholder for AuthProvider wrapper
+  // return (
+  //   <AuthProvider>
+  //     <Router>
+  //       ... app content ...
+  //     </Router>
+  //   </AuthProvider>
+  // );
 
-        <Routes>
+  // For now, App without full AuthProvider context
+  return (
+    <Router> {/* This Router should be inside AuthProvider if using context that needs router (e.g. for navigate) */}
+      <div className="container" style={{padding: '20px'}}>
+        <Navbar />
+        <h1>Athlete Assessment System</h1>
+
+        <Routes> {/* Routes should also be ideally within AuthProvider if they use useAuth hook */}
           {/* Default Route */}
           <Route path="/" element={<AssessmentListPage />} />
 
@@ -68,12 +150,18 @@ function App() {
           {/* Generic data entry page (user selects session/batch) - might be less common if flow is from batch list */}
           <Route path="/data-entry" element={<DataEntryPage />} />
 
-
-          {/* TODO: Add routes for Reports, User Management etc. */}
-          {/* Example for Reporting (Section 6)
+          {/* Reporting Routes */}
           <Route path="/reports/individual/:athleteId" element={<IndividualReportPage />} />
-          <Route path="/reports/cohort/:sessionId" element={<CohortAnalyticsPage />} />
-          */}
+          <Route path="/reports/cohort/session/:sessionId" element={<CohortAnalyticsPage />} />
+          {/* Could add /reports/cohort/batch/:batchId later if needed */}
+
+          {/* Auth Routes */}
+          <Route path="/login" element={<LoginPage />} />
+          <Route path="/register" element={<RegisterPage />} />
+          {/* TODO: Add ProfilePage route, protected routes based on auth status */}
+
+
+          {/* TODO: Add routes for Admin User Management etc. (part of Section 8) */}
         </Routes>
       </div>
       {/* <Footer /> */}
